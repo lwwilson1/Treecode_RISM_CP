@@ -1,0 +1,6 @@
+/data
+/scratch
+/src/*.o
+/src/*.mod
+/src/treecp
+/src/direct
