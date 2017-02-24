@@ -34,8 +34,8 @@
 ! global variables for taylor expansions
 
       INTEGER :: torder,torderlim
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: b1
+      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2,cf3
+      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b
 
 ! global variables to track tree levels 
  
@@ -84,6 +84,7 @@
 ! local variables
 
       INTEGER :: err,i
+      REAL(KIND=r8) :: t1
 
 ! global integers and reals:  TORDER, TORDERLIM and THETASQ
 
@@ -94,22 +95,25 @@
 
 ! allocate global Taylor expansion variables
 
-      ALLOCATE(cf(0:torder),cf1(torder+1),cf2(torder+1),&
-              b1(0:torderlim,0:torderlim,0:torderlim), STAT=err)
+      ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), &
+               a(-2:torderlim, -2:torderlim, -2:torderlim), &
+               b(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
       END IF
 
 ! initialize arrays for Taylor sums and coeffs
-!      DO i=0,torder
-!         cf(i)=-(REAL(i,KIND=r8)+1.0_r8)
-!      END DO
-!      DO i=1,torderlim
-!         t1=1.0_r8/REAL(i,KIND=r8)
-!         cf1(i)=1.0_r8-0.5_r8*t1
-!         cf2(i)=1.0_r8-t1
-!      END DO
+      DO i = 0, torder
+         cf(i) = REAL(i,KIND=r8) + 1.0_r8
+      END DO
+
+      DO i = 1, torderlim
+         t1 = 1.0_r8 / REAL(i,KIND=r8)
+         cf1(i) = t1;
+         cf2(i) = 1.0_r8 - 0.5_r8 * t1
+         cf3(i) = 1.0_r8 - t1
+      END DO
 
 ! find bounds of Cartesian box enclosing the particles
 
@@ -574,8 +578,10 @@
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
          (p%sqradius .NE. 0.0_r8)) THEN
 
-         b1=0.0_r8
-         CALL COMP_TCOEFF_TCF(tx,ty,tz, kappa, eta)
+         a=0.0_r8
+         b=0.0_r8
+         !CALL COMP_TCOEFF_TCF(tx,ty,tz, kappa, eta)
+         CALL COMP_TCOEFF_RECURSE(tx,ty,tz, kappa)
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(0:torder,0:torder,0:torder),STAT=err)
              IF (err .NE. 0) THEN
@@ -671,8 +677,8 @@
       IMPLICIT NONE
 !
 ! COMP_TCOEFF computes the Taylor coefficients of the potential
-! using a recurrence formula.  The center of the expansion is the
-! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.  
+! directly.  The center of the expansion is the midpoint of the node P.  
+! TARPOS and TORDERLIM are globally defined.
 !
       REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
       REAL(KIND=r8),INTENT(IN) :: kappa, eta
@@ -690,10 +696,10 @@
       dd(0) = -dx
       dd(1) = -dy
       dd(2) = -dz
-
       kap_rad = kappa * rad
-      kap_eta_2 = kappa * eta / 2_r8
-      rad_eta = rad / eta
+
+!      kap_eta_2 = kappa * eta / 2_r8
+!      rad_eta = rad / eta
 
 ! 0th coeff or function val 
 
@@ -701,7 +707,7 @@
       !            * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
       !            -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
 
-      b1(0,0,0) = - 2_r8 / rad * exp(-kap_rad)
+      a(0,0,0) = - 2_r8 / rad * exp(-kap_rad)
 
       IF (torder > 0) THEN
           fgh(0,0,0,0) = -1_r8 / rad
@@ -727,13 +733,13 @@
 !----- Simplified code based on several approximation -----!
 !----- fgh2000 = 2, fgh4000 = 0, h1p = h2p = 0 -----!
 
-          b1(1,0,0) = (fgh(0,1,0,0) * fgh(1,0,0,0)  &
+          a(1,0,0) = (fgh(0,1,0,0) * fgh(1,0,0,0)  &
                      + fgh(0,0,0,0) * fgh(1,1,0,0)) * 2_r8
 
-          b1(0,1,0) = (fgh(0,0,1,0) * fgh(1,0,0,0)  &
+          a(0,1,0) = (fgh(0,0,1,0) * fgh(1,0,0,0)  &
                      + fgh(0,0,0,0) * fgh(1,0,1,0)) * 2_r8
 
-          b1(0,0,1) = (fgh(0,0,0,1) * fgh(1,0,0,0)  &
+          a(0,0,1) = (fgh(0,0,0,1) * fgh(1,0,0,0)  &
                      + fgh(0,0,0,0) * fgh(1,0,0,1)) * 2_r8
 
 
@@ -754,32 +760,32 @@
 !          fgh(4,0,1,0) = h2p * dd(1)
 !          fgh(4,0,0,1) = h2p * dd(2)
 !
-!          b1(1,0,0) = fgh(0,1,0,0) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
-!                                    - fgh(3,0,0,0) * fgh(4,0,0,0))  &
-! 
-!                    + fgh(0,0,0,0) * (fgh(1,1,0,0) * fgh(2,0,0,0)   &
-!                                    - fgh(3,1,0,0) * fgh(4,0,0,0)   &
+!          a(1,0,0) = fgh(0,1,0,0) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
+!                                   - fgh(3,0,0,0) * fgh(4,0,0,0))  &
 !
-!                                    + fgh(1,0,0,0) * fgh(2,1,0,0)   &
-!                                    - fgh(3,0,0,0) * fgh(4,1,0,0))
+!                   + fgh(0,0,0,0) * (fgh(1,1,0,0) * fgh(2,0,0,0)   &
+!                                   - fgh(3,1,0,0) * fgh(4,0,0,0)   &
 !
-!          b1(0,1,0) = fgh(0,0,1,0) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
-!                                    - fgh(3,0,0,0) * fgh(4,0,0,0))  &
+!                                   + fgh(1,0,0,0) * fgh(2,1,0,0)   &
+!                                   - fgh(3,0,0,0) * fgh(4,1,0,0))
 !
-!                    + fgh(0,0,0,0) * (fgh(1,0,1,0) * fgh(2,0,0,0)   &
-!                                    - fgh(3,0,1,0) * fgh(4,0,0,0)   &
+!          a(0,1,0) = fgh(0,0,1,0) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
+!                                   - fgh(3,0,0,0) * fgh(4,0,0,0))  &
 !
-!                                    + fgh(1,0,0,0) * fgh(2,0,1,0)   &
-!                                    - fgh(3,0,0,0) * fgh(4,0,1,0))
+!                   + fgh(0,0,0,0) * (fgh(1,0,1,0) * fgh(2,0,0,0)   &
+!                                   - fgh(3,0,1,0) * fgh(4,0,0,0)   &
 !
-!          b1(0,0,1) = fgh(0,0,0,1) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
-!                                    - fgh(3,0,0,0) * fgh(4,0,0,0))  &
+!                                   + fgh(1,0,0,0) * fgh(2,0,1,0)   &
+!                                   - fgh(3,0,0,0) * fgh(4,0,1,0))
+!
+!          a(0,0,1) = fgh(0,0,0,1) * (fgh(1,0,0,0) * fgh(2,0,0,0)   &
+!                                   - fgh(3,0,0,0) * fgh(4,0,0,0))  &
 !                                                                    
-!                    + fgh(0,0,0,0) * (fgh(1,0,0,1) * fgh(2,0,0,0)   &
-!                                    - fgh(3,0,0,1) * fgh(4,0,0,0)   &
+!                   + fgh(0,0,0,0) * (fgh(1,0,0,1) * fgh(2,0,0,0)   &
+!                                   - fgh(3,0,0,1) * fgh(4,0,0,0)   &
 !                                                                    
-!                                    + fgh(1,0,0,0) * fgh(2,0,0,1)   &
-!                                    - fgh(3,0,0,0) * fgh(4,0,0,1))
+!                                   + fgh(1,0,0,0) * fgh(2,0,0,1)   &
+!                                   - fgh(3,0,0,0) * fgh(4,0,0,1))
 !
 !----- End of original full precision code -----!
 
@@ -787,6 +793,180 @@
 
       RETURN
       END SUBROUTINE COMP_TCOEFF_TCF
+!!!!!!!!!!!!!!!
+
+
+!!!!!!!!!!!!!!!
+      SUBROUTINE COMP_TCOEFF_RECURSE(dx,dy,dz,kappa)
+      IMPLICIT NONE
+!
+! COMP_TCOEFF computes the Taylor coefficients of the potential
+! using a recurrence formula.  The center of the expansion is the
+! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
+!
+      REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
+      REAL(KIND=r8),INTENT(IN)  :: kappa
+
+! local varaibles
+
+      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
+      REAL(KIND=r8) :: kappax,kappay,kappaz
+      INTEGER :: i,j,k
+
+! setup variables
+
+      ddx=2.0_r8*dx
+      ddy=2.0_r8*dy
+      ddz=2.0_r8*dz
+
+      kappax=kappa*dx
+      kappay=kappa*dy
+      kappaz=kappa*dz
+
+      dist=dx*dx+dy*dy+dz*dz
+      fac=1.0_r8/dist
+      dist=SQRT(dist)
+
+! 0th coeff or function val
+
+      b(0,0,0)=-2_r8*EXP(-kappa*dist)
+      a(0,0,0)=b(0,0,0)/dist
+
+! 2 indices are 0
+
+      b(1,0,0)=kappax*a(0,0,0)
+      b(0,1,0)=kappay*a(0,0,0)
+      b(0,0,1)=kappaz*a(0,0,0)
+
+      a(1,0,0)=fac*dx*(a(0,0,0)+kappa*b(0,0,0))
+      a(0,1,0)=fac*dy*(a(0,0,0)+kappa*b(0,0,0))
+      a(0,0,1)=fac*dz*(a(0,0,0)+kappa*b(0,0,0))
+
+
+      DO i=2,torderlim
+         b(i,0,0)=cf1(i)*kappa*(dx*a(i-1,0,0)-a(i-2,0,0))
+         b(0,i,0)=cf1(i)*kappa*(dy*a(0,i-1,0)-a(0,i-2,0))
+         b(0,0,i)=cf1(i)*kappa*(dz*a(0,0,i-1)-a(0,0,i-2))
+
+         a(i,0,0)=fac*(ddx*cf2(i)*a(i-1,0,0)-cf3(i)*a(i-2,0,0)+&
+                  cf1(i)*kappa*(dx*b(i-1,0,0)-b(i-2,0,0)))
+         a(0,i,0)=fac*(ddy*cf2(i)*a(0,i-1,0)-cf3(i)*a(0,i-2,0)+&
+                  cf1(i)*kappa*(dy*b(0,i-1,0)-b(0,i-2,0)))
+         a(0,0,i)=fac*(ddz*cf2(i)*a(0,0,i-1)-cf3(i)*a(0,0,i-2)+&
+                  cf1(i)*kappa*(dz*b(0,0,i-1)-b(0,0,i-2)))
+      END DO
+
+! 1 index 0, 1 index 1, other >=1
+
+      b(1,1,0)=kappax*a(0,1,0)
+      b(1,0,1)=kappax*a(0,0,1)
+      b(0,1,1)=kappay*a(0,0,1)
+
+      a(1,1,0)=fac*(dx*a(0,1,0)+ddy*a(1,0,0)+kappax*b(0,1,0))
+      a(1,0,1)=fac*(dx*a(0,0,1)+ddz*a(1,0,0)+kappax*b(0,0,1))
+      a(0,1,1)=fac*(dy*a(0,0,1)+ddz*a(0,1,0)+kappay*b(0,0,1))
+
+      DO i=2,torderlim-1
+         b(1,0,i)=kappax*a(0,0,i)
+         b(0,1,i)=kappay*a(0,0,i)
+         b(0,i,1)=kappaz*a(0,i,0)
+         b(1,i,0)=kappax*a(0,i,0)
+         b(i,1,0)=kappay*a(i,0,0)
+         b(i,0,1)=kappaz*a(i,0,0)
+
+         a(1,0,i)=fac*(dx*a(0,0,i)+ddz*a(1,0,i-1)-a(1,0,i-2)+&
+                  kappax*b(0,0,i))
+         a(0,1,i)=fac*(dy*a(0,0,i)+ddz*a(0,1,i-1)-a(0,1,i-2)+&
+                  kappay*b(0,0,i))
+         a(0,i,1)=fac*(dz*a(0,i,0)+ddy*a(0,i-1,1)-a(0,i-2,1)+&
+                  kappaz*b(0,i,0))
+         a(1,i,0)=fac*(dx*a(0,i,0)+ddy*a(1,i-1,0)-a(1,i-2,0)+&
+                  kappax*b(0,i,0))
+         a(i,1,0)=fac*(dy*a(i,0,0)+ddx*a(i-1,1,0)-a(i-2,1,0)+&
+                  kappay*b(i,0,0))
+         a(i,0,1)=fac*(dz*a(i,0,0)+ddx*a(i-1,0,1)-a(i-2,0,1)+&
+                  kappaz*b(i,0,0))
+      END DO
+
+! 1 index 0, others >= 2
+
+      DO i=2,torderlim-2
+         DO j=2,torderlim-i
+            b(i,j,0)=cf1(i)*kappa*(dx*a(i-1,j,0)-a(i-2,j,0))
+            b(i,0,j)=cf1(i)*kappa*(dx*a(i-1,0,j)-a(i-2,0,j))
+            b(0,i,j)=cf1(i)*kappa*(dy*a(0,i-1,j)-a(0,i-2,j))
+
+            a(i,j,0)=fac*(ddx*cf2(i)*a(i-1,j,0)+ddy*a(i,j-1,0) &
+                     -cf3(i)*a(i-2,j,0)-a(i,j-2,0)+&
+                     cf1(i)*kappa*(dx*b(i-1,j,0)-b(i-2,j,0)))
+            a(i,0,j)=fac*(ddx*cf2(i)*a(i-1,0,j)+ddz*a(i,0,j-1)&
+                     -cf3(i)*a(i-2,0,j)-a(i,0,j-2)+&
+                     cf1(i)*kappa*(dx*b(i-1,0,j)-b(i-2,0,j)))
+            a(0,i,j)=fac*(ddy*cf2(i)*a(0,i-1,j)+ddz*a(0,i,j-1)&
+                     -cf3(i)*a(0,i-2,j)-a(0,i,j-2)+&
+                     cf1(i)*kappa*(dy*b(0,i-1,j)-b(0,i-2,j)))
+         END DO
+      END DO
+
+! 2 indices 1, other >= 1
+! b(1,1,1) is correct, but a little tricky!
+!      b(1,1,1)=5.0*dz*fac*b(1,1,0)
+
+      b(1,1,1)=kappax*a(0,1,1)
+      a(1,1,1)=fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
+               kappax*b(0,1,1))
+
+      DO i=2,torderlim-2
+         b(1,1,i)=kappax*a(0,1,i)
+         b(1,i,1)=kappax*a(0,i,1)
+         b(i,1,1)=kappay*a(i,0,1)
+
+         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i-1)&
+                 -a(1,1,i-2)+kappax*b(0,1,i))
+         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i-1,1)+ddz*a(1,i,0)&
+                 -a(1,i-2,1)+kappax*b(0,i,1))
+         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i-1,1,1)+ddz*a(i,1,0)&
+                 -a(i-2,1,1)+kappay*b(i,0,1))
+      END DO
+
+! 1 index 1, others >=2
+
+      DO i=2,torderlim-3
+         DO j=2,torderlim-i
+            b(1,i,j)=kappax*a(0,i,j)
+            b(i,1,j)=kappay*a(i,0,j)
+            b(i,j,1)=kappaz*a(i,j,0)
+
+            a(1,i,j)=fac*(dx*a(0,i,j)+ddy*a(1,i-1,j)+ddz*a(1,i,j-1)&
+                    -a(1,i-2,j)-a(1,i,j-2)+kappax*b(0,i,j))
+            a(i,1,j)=fac*(dy*a(i,0,j)+ddx*a(i-1,1,j)+ddz*a(i,1,j-1)&
+                    -a(i-2,1,j)-a(i,1,j-2)+kappay*b(i,0,j))
+            a(i,j,1)=fac*(dz*a(i,j,0)+ddx*a(i-1,j,1)+ddy*a(i,j-1,1)&
+                    -a(i-2,j,1)-a(i,j-2,1)+kappaz*b(i,j,0))
+
+         END DO
+      END DO
+
+! all indices >=2
+
+      DO k=2,torderlim-4
+         DO j=2,torderlim-2-k
+            DO i=2,torderlim-k-j
+               b(i,j,k)=cf1(i)*kappa*(dx*a(i-1,j,k)-a(i-2,j,k))
+
+               a(i,j,k)=fac*(ddx*cf2(i)*a(i-1,j,k)+ddy*a(i,j-1,k)&
+                       +ddz*a(i,j,k-1)-cf3(i)*a(i-2,j,k)&
+                       -a(i,j-2,k)-a(i,j,k-2)+&
+                       cf1(i)*kappa*(dx*b(i-1,j,k)-b(i-2,j,k)))
+            END DO
+         END DO
+      END DO
+
+      RETURN
+      END SUBROUTINE COMP_TCOEFF_RECURSE
+!!!!!!!!!!!!!!!
+
+
 !!!!!!!!!!!!!!!
       SUBROUTINE COMP_CMS(p)
       IMPLICIT NONE
@@ -804,7 +984,7 @@
          DO k2=0,torder-k3
                 
             DO k1=0,torder-k3-k2
-               p%ms(k1,k2,k3)=p%ms(k1,k2,k3)+tarposq*b1(k1,k2,k3)
+               p%ms(k1,k2,k3)=p%ms(k1,k2,k3)+tarposq*a(k1,k2,k3)
                   
            END DO
              
@@ -866,7 +1046,7 @@
   
       INTEGER :: err
 
-      DEALLOCATE(cf,cf1,cf2,b1, STAT=err)
+      DEALLOCATE(cf,cf1,cf2,cf3,a,b, STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error deallocating Taylor variables! '
          STOP
