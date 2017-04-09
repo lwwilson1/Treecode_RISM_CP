@@ -539,6 +539,63 @@
 
       RETURN
       END SUBROUTINE CP_TREECODE_TCF
+
+!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      SUBROUTINE CP_TREECODE_DCF(p,xS,yS,zS,qS,xT,yT,zT,tpeng,EnP,&
+                                 numparsS,numparsT, kappa, eta, eps, T)
+      IMPLICIT NONE
+!
+! CP_TREECODE is the driver routine which calls COMPUTE_CP1 for each
+! source particle, setting the global variable TARPOS before the call. After
+! the calls to COMPUTE_CP1, CP_TREECODE calls COMPUTE_CP2 to compute
+! the energy using power series. 
+! P is the root node of the target tree, xT,yT,zT are the coordinates of
+! the target particles while xS,yS,zS,qS are the coordinates and charges of the
+! source particles. The energy at target 'i', is stored in EnP(i).
+!
+ 
+      INTEGER,INTENT(IN) :: numparsS,numparsT
+      TYPE(tnode),POINTER :: p  
+      REAL(KIND=r8),DIMENSION(numparsS),INTENT(IN) :: xS,yS,zS,qS
+      REAL(KIND=r8),DIMENSION(numparsT),INTENT(IN) :: xT,yT,zT
+      REAL(KIND=r8),INTENT(IN) :: kappa, eta, eps, T
+
+      REAL(KIND=r8),DIMENSION(numparsT),INTENT(INOUT) :: EnP
+      REAL(KIND=r8),INTENT(INOUT) :: tpeng
+ 
+! local variables
+
+      INTEGER :: i,j
+      REAL(KIND=r8) :: peng
+
+      EnP=0.0_r8
+      DO i=1,numparsS
+         peng=0.0_r8
+         tarpos(1)=xS(i)
+         tarpos(2)=yS(i)
+         tarpos(3)=zS(i)
+         tarposq=qS(i)
+
+         DO j=1,p%num_children
+            CALL COMPUTE_CP1_DCF(p%child(j)%p_to_tnode,EnP, &
+                                 xT,yT,zT,numparsT, kappa, eta)
+         END DO
+      END DO
+
+      CALL COMPUTE_CP2(p,xT,yT,zT,EnP,numparsT)
+ 
+      EnP = EnP * sqrt(coulomb/kb/T)
+      tpeng = SUM(EnP)
+
+
+      RETURN
+      END SUBROUTINE CP_TREECODE_DCF
+
+
+!!!!!!!!!!!!!!
+
 !!!!!!!!!!!!!!
       RECURSIVE SUBROUTINE COMPUTE_CP1_TCF(p,EnP,x,y,z,arrdim, kappa, eta)
 
@@ -611,6 +668,86 @@
 
       RETURN
       END SUBROUTINE COMPUTE_CP1_TCF
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      RECURSIVE SUBROUTINE COMPUTE_CP1_DCF(p,EnP,x,y,z,arrdim, kappa, eta)
+
+      IMPLICIT NONE
+
+! COMPUTE_CP1 is the recursive routine for computing the interaction
+! between a target particle and a source cluster. If the MAC is
+! satisfied the power series coefficients for the current target 
+! cluster are updated. If the MAC is not satisfied then the algorithm 
+! descends to the children of the current cluster, unless the
+! current cluster is a leaf then the interaction is done exactly
+! via a call to the routine COMP_DIRECT
+!
+
+      INTEGER,INTENT(IN) :: arrdim
+      TYPE(tnode),POINTER :: p      
+      REAL(KIND=r8),DIMENSION(arrdim),INTENT(INOUT) :: EnP
+      REAL(KIND=r8),DIMENSION(arrdim),INTENT(IN) :: x,y,z
+      REAL(KIND=r8),INTENT(IN) :: kappa, eta
+
+! local variables
+
+      REAL(KIND=r8) :: tx,ty,tz,distsq
+      INTEGER :: i,err
+
+! determine DISTSQ for MAC test
+
+      tx=tarpos(1)-p%x_mid
+      ty=tarpos(2)-p%y_mid
+      tz=tarpos(3)-p%z_mid
+      distsq=tx*tx+ty*ty+tz*tz
+
+! intialize potential energy and force 
+
+! If MAC is accepted and there is more than 1 particle in the 
+! box use the expansion for the approximation.
+      IF ((p%sqradius .LT. distsq*thetasq) .AND. &
+         (p%sqradius .NE. 0.0_r8)) THEN
+
+         a=0.0_r8
+         b=0.0_r8
+
+         CALL COMP_TCOEFF_DCF(tx,ty,tz, eta)
+         IF (p%exist_ms .EQ. 0) THEN
+             ALLOCATE(p%ms(0:torder,0:torder,0:torder),STAT=err)
+             IF (err .NE. 0) THEN
+                WRITE(6,*) 'Error allocating node moments! '
+                STOP
+             END IF
+             p%ms=0.0_r8
+             p%exist_ms=1
+         END IF
+         CALL COMP_CMS(p)   
+    
+      ELSE
+
+! If MAC fails check to see if the are children. If not, perform direct 
+! calculation.  If there are children, call routine recursively for each.
+!
+         IF (p%num_children .EQ. 0) THEN
+            CALL COMP_DIRECT_DCF(EnP,p%ibeg,p%iend, &
+                                 x,y,z,arrdim, kappa, eta)
+         ELSE
+            DO i=1,p%num_children
+               CALL COMPUTE_CP1_DCF(p%child(i)%p_to_tnode,EnP, &
+                                    x,y,z,arrdim, kappa, eta)
+            END DO  
+         END IF 
+      END IF
+
+      RETURN
+      END SUBROUTINE COMPUTE_CP1_DCF
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
       RECURSIVE SUBROUTINE COMPUTE_CP2(ap,x,y,z,EnP,arrdim)
 
@@ -968,6 +1105,182 @@
 
 
 !!!!!!!!!!!!!!!
+      SUBROUTINE COMP_TCOEFF_DCF(dx,dy,dz,eta)
+      IMPLICIT NONE
+!
+! COMP_TCOEFF computes the Taylor coefficients of the potential
+! using a recurrence formula.  The center of the expansion is the
+! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
+!
+      REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
+      REAL(KIND=r8),INTENT(IN)  :: eta
+
+! local varaibles
+
+      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
+      REAL(KIND=r8) :: two_etasq, two_etasqx
+      REAL(KIND=r8) :: two_etasqy, two_etasqz
+      INTEGER :: i,j,k
+
+! setup variables
+
+      ddx = 2.0_r8*dx
+      ddy = 2.0_r8*dy
+      ddz = 2.0_r8*dz
+
+      two_etasq = 2.0_r8 / (eta*eta)
+      two_etasqx = two_etasq*dx
+      two_etasqy = two_etasq*dy
+      two_etasqz = two_etasq*dz
+
+      dist = dx*dx + dy*dy + dz*dz
+      fac = 1.0_r8 / dist
+      dist = SQRT(dist)
+
+! 0th coeff or function val
+
+      b(0,0,0) = -eta/sqrt(pi) * exp(-dist*dist/(eta*eta))
+      a(0,0,0) = -erf(dist/eta)/dist
+
+!!!
+!!!Fix the rest of this!!!
+!!!
+! 2 indices are 0
+
+      b(1,0,0) = two_etasqx * b(0,0,0)
+      b(0,1,0) = two_etasqy * b(0,0,0)
+      b(0,0,1) = two_etasqz * b(0,0,0)
+
+      a(1,0,0) = fac*dx*(a(0,0,0) + b(1,0,0))
+      a(0,1,0) = fac*dy*(a(0,0,0) + b(0,1,0))
+      a(0,0,1) = fac*dz*(a(0,0,0) + b(0,0,1))
+
+
+      DO i=2,torderlim
+         b(i,0,0) = cf1(i)*two_etasq * (dx*b(i-1,0,0) - b(i-2,0,0))
+         b(0,i,0) = cf1(i)*two_etasq * (dy*b(0,i-1,0) - b(0,i-2,0))
+         b(0,0,i) = cf1(i)*two_etasq * (dz*b(0,0,i-1) - b(0,0,i-2))
+
+         a(i,0,0) = fac*(ddx*cf2(i)*a(i-1,0,0)-cf3(i)*a(i-2,0,0)+&
+                    b(i,0,0))
+         a(0,i,0) = fac*(ddy*cf2(i)*a(0,i-1,0)-cf3(i)*a(0,i-2,0)+&
+                    b(0,i,0))
+         a(0,0,i) = fac*(ddz*cf2(i)*a(0,0,i-1)-cf3(i)*a(0,0,i-2)+&
+                    b(0,0,i))
+      END DO
+
+! 1 index 0, 1 index 1, other >=1
+
+      b(1,1,0) = two_etasqx * b(0,1,0)
+      b(1,0,1) = two_etasqx * b(0,0,1)
+      b(0,1,1) = two_etasqy * b(0,0,1)
+
+      a(1,1,0) = fac*(dx*a(0,1,0)+ddy*a(1,0,0) + b(1,1,0))
+      a(1,0,1) = fac*(dx*a(0,0,1)+ddz*a(1,0,0) + b(1,0,1))
+      a(0,1,1) = fac*(dy*a(0,0,1)+ddz*a(0,1,0) + b(0,1,1))
+
+      DO i=2,torderlim-1
+         b(1,0,i) = two_etasqx * b(0,0,i)
+         b(0,1,i) = two_etasqy * b(0,0,i)
+         b(0,i,1) = two_etasqz * b(0,i,0)
+         b(1,i,0) = two_etasqx * b(0,i,0)
+         b(i,1,0) = two_etasqy * b(i,0,0)
+         b(i,0,1) = two_etasqz * b(i,0,0)
+
+         a(1,0,i) = fac*(dx*a(0,0,i)+ddz*a(1,0,i-1)-a(1,0,i-2)+&
+                    b(1,0,i))
+         a(0,1,i) = fac*(dy*a(0,0,i)+ddz*a(0,1,i-1)-a(0,1,i-2)+&
+                    b(0,1,i))
+         a(0,i,1) = fac*(dz*a(0,i,0)+ddy*a(0,i-1,1)-a(0,i-2,1)+&
+                    b(0,i,1))
+         a(1,i,0) = fac*(dx*a(0,i,0)+ddy*a(1,i-1,0)-a(1,i-2,0)+&
+                    b(1,i,0))
+         a(i,1,0) = fac*(dy*a(i,0,0)+ddx*a(i-1,1,0)-a(i-2,1,0)+&
+                    b(i,1,0))
+         a(i,0,1) = fac*(dz*a(i,0,0)+ddx*a(i-1,0,1)-a(i-2,0,1)+&
+                    b(i,0,1))
+      END DO
+
+! 1 index 0, others >= 2
+
+      DO i=2,torderlim-2
+         DO j=2,torderlim-i
+            b(i,j,0) = cf1(i)*two_etasq * (dx*b(i-1,j,0) - b(i-2,j,0))
+            b(i,0,j) = cf1(i)*two_etasq * (dx*b(i-1,0,j) - b(i-2,0,j))
+            b(0,i,j) = cf1(i)*two_etasq * (dx*b(0,i-1,j) - b(0,i-2,j))
+
+            a(i,j,0) = fac*(ddx*cf2(i)*a(i-1,j,0)+ddy*a(i,j-1,0) &
+                       -cf3(i)*a(i-2,j,0)-a(i,j-2,0)+&
+                       b(i,j,0))
+            a(i,0,j) = fac*(ddx*cf2(i)*a(i-1,0,j)+ddz*a(i,0,j-1)&
+                       -cf3(i)*a(i-2,0,j)-a(i,0,j-2)+&
+                       b(i,0,j))
+            a(0,i,j) = fac*(ddy*cf2(i)*a(0,i-1,j)+ddz*a(0,i,j-1)&
+                       -cf3(i)*a(0,i-2,j)-a(0,i,j-2)+&
+                       b(0,i,j))
+         END DO
+      END DO
+
+! 2 indices 1, other >= 1
+! b(1,1,1) is correct, but a little tricky!
+!      b(1,1,1)=5.0*dz*fac*b(1,1,0)
+
+      b(1,1,1) = two_etasqx * b(0,1,1)
+      a(1,1,1) = fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
+                 b(1,1,1))
+
+      DO i=2,torderlim-2
+         b(1,1,i) = two_etasqx * b(0,1,i)
+         b(1,i,1) = two_etasqx * b(0,i,1)
+         b(i,1,1) = two_etasqy * b(i,0,1)
+
+         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i-1)&
+                 -a(1,1,i-2) + b(1,1,i))
+         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i-1,1)+ddz*a(1,i,0)&
+                 -a(1,i-2,1) + b(1,i,1))
+         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i-1,1,1)+ddz*a(i,1,0)&
+                 -a(i-2,1,1) + b(i,1,1))
+      END DO
+
+! 1 index 1, others >=2
+
+      DO i=2,torderlim-3
+         DO j=2,torderlim-i
+            b(1,i,j) = two_etasqx * b(0,i,j)
+            b(i,1,j) = two_etasqy * b(i,0,j)
+            b(i,j,1) = two_etasqz * b(i,j,0)
+
+            a(1,i,j) = fac*(dx*a(0,i,j)+ddy*a(1,i-1,j)+ddz*a(1,i,j-1)&
+                      -a(1,i-2,j)-a(1,i,j-2) + b(1,i,j))
+            a(i,1,j) = fac*(dy*a(i,0,j)+ddx*a(i-1,1,j)+ddz*a(i,1,j-1)&
+                      -a(i-2,1,j)-a(i,1,j-2) + b(i,1,j))
+            a(i,j,1) = fac*(dz*a(i,j,0)+ddx*a(i-1,j,1)+ddy*a(i,j-1,1)&
+                      -a(i-2,j,1)-a(i,j-2,1) + b(i,j,1))
+
+         END DO
+      END DO
+
+! all indices >=2
+
+      DO k=2,torderlim-4
+         DO j=2,torderlim-2-k
+            DO i=2,torderlim-k-j
+               b(i,j,k) = cf1(i)*two_etasq * (dx*b(i-1,j,k) - b(i-2,j,k))
+
+               a(i,j,k) = fac * (ddx*cf2(i)*a(i-1,j,k) + ddy*a(i,j-1,k) &
+                                   + ddz*a(i,j,k-1) - cf3(i)*a(i-2,j,k) &
+                                   - a(i,j-2,k) - a(i,j,k-2) + b(i,j,k))
+            END DO
+         END DO
+      END DO
+
+      RETURN
+
+      END SUBROUTINE COMP_TCOEFF_DCF
+!!!!!!!!!!!!!!!
+
+
+!!!!!!!!!!!!!!!
       SUBROUTINE COMP_CMS(p)
       IMPLICIT NONE
 !
@@ -1033,6 +1346,48 @@
 
       RETURN
       END SUBROUTINE COMP_DIRECT_TCF
+
+!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      SUBROUTINE COMP_DIRECT_DCF(EnP,ibeg,iend,x,y,z,arrdim, kappa, eta)
+
+      IMPLICIT NONE
+!
+! COMP_DIRECT directly computes the potential on the targets
+! in the current cluster due to the 
+! current source  (determined by the global variable TARPOS). 
+!
+      INTEGER,INTENT(IN) :: ibeg,iend,arrdim
+      REAL(KIND=r8),DIMENSION(arrdim),INTENT(INOUT) :: EnP
+      REAL(KIND=r8),DIMENSION(arrdim),INTENT(IN) :: x,y,z
+      REAL(KIND=r8),INTENT(IN) :: kappa, eta
+
+! local variables
+
+      INTEGER :: i,nn
+      REAL(KIND=r8) :: tx,ty,tz, rad
+      REAL(KIND=r8) :: rad_eta
+
+      DO i=ibeg,iend
+         nn=orderarr(i)
+         tx=x(i)-tarpos(1)
+         ty=y(i)-tarpos(2)
+         tz=z(i)-tarpos(3)
+
+         rad = SQRT(tx*tx + ty*ty + tz*tz)
+         rad_eta = rad / eta
+
+         EnP(nn) = EnP(nn) - tarposq / rad * erf(rad_eta)
+
+      END DO   
+
+      RETURN
+      END SUBROUTINE COMP_DIRECT_DCF
+
+
+!!!!!!!!!!!!!!!!!
+
 !!!!!!!!!!!!!!!!!
       SUBROUTINE CLEANUP(p)
       IMPLICIT NONE
@@ -1223,8 +1578,8 @@
           CALL CP_TREECODE_TCF(trootT,xS,yS,zS,qS,xT,yT,zT,tpeng,tEn,&
                                numparsS,numparsT, kappa, eta, eps, T) 
       ELSE IF (pot_type == 1) THEN
-          !CALL CP_TREECODE_DCF(trootT,xS,yS,zS,qS,xT,yT,zT,tpeng,tEn,&
-          !                     numparsS,numparsT, kappa, eta, eps, T) 
+          CALL CP_TREECODE_DCF(trootT,xS,yS,zS,qS,xT,yT,zT,tpeng,tEn,&
+                               numparsS,numparsT, kappa, eta, eps, T)
       END IF
 
       CALL DATE_AND_TIME(datec,timec,zonec,time2)
