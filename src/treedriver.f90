@@ -29,7 +29,6 @@
 ! runtime parameters
 
       INTEGER :: numparsS,numparsT,order,maxparnodeT
-      INTEGER :: shrinkT,treelevelT,iflagT
       REAL(KIND=r8) :: theta 
 
       INTEGER :: ftype, pot_type
@@ -38,8 +37,10 @@
 ! arrays for coordinates and charges and energy of target particles
 
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: xS,yS,zS,qS  !source particles
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: xT,yT,zT     !target particles
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: denergy,tenergy !exact energy and energy via treecode
+
+      REAL(KIND=r8),DIMENSION(6) :: xyzminmax
+      INTEGER,DIMENSION(3) :: xyzdim
 
 ! variables for potential energy computation
 
@@ -47,7 +48,7 @@
 
 ! variables needed for f90 DATE_AND_TIME intrinsic
 
-      CHARACTER (LEN=25) :: sampin1,sampin2,sampin3,sampout
+      CHARACTER (LEN=25) :: sampin1,sampin3,sampout
       REAL(KIND=r8)      :: timedirect,timetree
 
 ! variables for error calculations
@@ -68,18 +69,15 @@
       WRITE(6,*) 'Enter the type of input file 1 (0 is pqr, 1 is flat)'
       READ(5,*) ftype
       
-      WRITE(6,*) 'Enter the name of input file 2 (xyz target positions)'
-      READ(5,*) sampin2
-      
-      WRITE(6,*) 'Enter the name of input file 2 (xyz target positions)'
+      WRITE(6,*) 'Enter direct engy results'
       READ(5,*) sampin3
       
       !WRITE(6,*) 'Enter the name of output file'
       !READ(5,*) sampout
       sampout = 'out.txt'
       
-      WRITE(6,*) 'Enter particle number for source and target'
-      READ(5,*) numparsS, numparsT
+      WRITE(6,*) 'Enter particle number for source'
+      READ(5,*) numparsS
 
       WRITE(6,*) 'Enter THETA : ' ! The multipole acceptability criterion
       READ(5,*) theta         
@@ -102,30 +100,22 @@
       WRITE(6,*) 'Enter T value'
       READ(5,*) T 
       
-      WRITE(6,*) 'Enter potential type (0 total corr asym; 1 direct corr asym)'
-      READ(5,*) pot_type 
-      
-      !WRITE(6,*) 'Enter TREELEVEL : '   ! maximum number of levels of tree
-      !READ(5,*) treelevelT   ! treelevelT corresponds to the level for target tree
-      treelevelT = 5
-      
-      !WRITE(6,*) 'Enter IFLAG (0-divide tree till number of particles &
-      ! in leaf is less or equal to maxparnode)'
-      !WRITE(6,*) '            (1-divide tree till maxlevel attained )'
-      !READ(5,*) iflagT 
-      ! Flag to decide whether tree divides till number of particles in a leaf is at 
-      ! most maxparnode or till number of levels in a tree is maxlevel
-      iflagT = 0            
+      WRITE(6,*) 'Enter potential type (0 total corr asym; 1 direct corr asym; 2 coulomb)'
+      READ(5,*) pot_type
+
+      WRITE(6,*) 'Enter xyzminmax grid limits'
+      READ(5,*) xyzminmax(1),xyzminmax(2),xyzminmax(3)
+      READ(5,*) xyzminmax(4),xyzminmax(5),xyzminmax(6)
+
+      WRITE(6,*) 'Enter xyzdim grid dimensions'
+      READ(5,*) xyzdim(1),xyzdim(2),xyzdim(3)
+
+      numparsT=xyzdim(1)*xyzdim(2)*xyzdim(3)
+
 
       ALLOCATE(xS(numparsS),yS(numparsS),zS(numparsS),qS(numparsS),STAT=err)
       IF (err .NE. 0) THEN
           WRITE(6,*) 'Error allocating arrays for xS, yS, zS and qS! '
-          STOP
-      END IF
-
-      ALLOCATE(xT(numparsT),yT(numparsT),zT(numparsT),STAT=err)
-      IF (err .NE. 0) THEN
-          WRITE(6,*) 'Error allocating arrays for xT, yT, zT ! '
           STOP
       END IF
 
@@ -168,20 +158,6 @@
      
       CLOSE(82)
 
-! Read in coordinates for the targets
-      OPEN(unit=83,file=sampin2,status='old',action='read')
-
-      WRITE(6,*) ' ' 
-      WRITE(6,*) "Reading in targets..."
-      DO i=1,numparsT
-         READ(83,*) xT(i),yT(i),zT(i)
-         IF ( MOD(i, 100000) == 0) THEN
-            WRITE(6,'(A1,A,I12,A,I12)',ADVANCE='NO')  & 
-                   char(13), " Reading in target ", i, " of ", numparsT
-         END IF
-      END DO
-
-      CLOSE(83)
 
 ! Read in the values for the exact energy at each target       
       OPEN(unit=84,file=sampin3,status='old',action='read')
@@ -205,9 +181,9 @@
 
 ! Calling main subroutine to approximate the energy
 
-      CALL TREECODE(xS,yS,zS,qS,xT,yT,zT,numparsS,numparsT, &
+      CALL TREECODE(xS,yS,zS,qS,xyzminmax,xyzdim,numparsS,numparsT, &
                       tenergy,tpeng,order,theta, &
-                      maxparnodeT,timetree, treelevelT,iflagT, &
+                      maxparnodeT,timetree, &
                       pot_type, kappa, eta, eps, T)
 
 
@@ -242,13 +218,13 @@
       WRITE(6,'("   Relative 2 norm error in potential: ",ES15.8)') reln2err
       WRITE(6,*) ' '
          
-      write(85,15)numparsS,numparsT,iflagT,maxparnodeT,treelevelT,order,theta
+      write(85,15)numparsS,numparsT,maxparnodeT,order,theta
       write(85,16)ABS((tpeng-dpeng)/dpeng),reln2err,timedirect,timetree
 
       CLOSE(unit=85)
 
  13   FORMAT(E24.16)
- 15   FORMAT(I8,2X,I8,2X,I3,2X,I4,2X,I3,2X,I3,2X,F12.8)
+ 15   FORMAT(I8,2X,I8,2X,I4,2X,I3,2X,F12.8)
  16   FORMAT(E24.16,2X,E24.16,2X,F24.16,2X,F24.16) 
  17   FORMAT(14X,E24.16)
 100   FORMAT(A7, A5, A5, A7, A6, F8.3, F8.3, F8.3, F8.4, A8, A9) 

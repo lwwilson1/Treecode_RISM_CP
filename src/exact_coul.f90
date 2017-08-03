@@ -162,8 +162,8 @@
       IMPLICIT NONE
 
       INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(12)
-      REAL(KIND=r8),PARAMETER :: kb = 0.001987215873
-      REAL(KIND=r8),PARAMETER :: coulomb = 332.0637790571
+      REAL(KIND=r8),PARAMETER :: kb = 0.001987215873_r8
+      REAL(KIND=r8),PARAMETER :: coulomb = 332.0637790571_r8
 
       INTEGER,INTENT(IN) :: numparsS,numparsT 
       REAL(KIND=r8),DIMENSION(numparsS),INTENT(IN) :: xS,yS,zS,qS
@@ -200,7 +200,7 @@
               denergy(i) = -teng * exp((kappa*eta)**2 / 4) / (2*eps) * sqrt(coulomb/kb/T)
           END DO
 
-      ELSE
+      ELSE IF (pot_type == 1) THEN
           DO i=1,numparsT
               xi=xT(i)
               yi=yT(i)
@@ -213,6 +213,24 @@
                   rad = SQRT(tx*tx + ty*ty + tz*tz)
                   teng = teng + qS(j) / rad * erf(rad/eta)
               END DO
+
+              denergy(i) = -teng * sqrt(coulomb/kb/T)
+          END DO
+
+      ELSE IF (pot_type == 2) THEN
+          DO i=1,numparsT
+              xi=xT(i)
+              yi=yT(i)
+              zi=zT(i)
+              teng=0.0_r8
+              DO j=1,numparsS
+                  tx=xi-xS(j)
+                  ty=yi-yS(j)
+                  tz=zi-zS(j)
+                  rad = SQRT(tx*tx + ty*ty + tz*tz)
+                  teng = teng + qS(j) / rad
+              END DO
+
               denergy(i) = -teng * sqrt(coulomb/kb/T)
           END DO
       END IF
