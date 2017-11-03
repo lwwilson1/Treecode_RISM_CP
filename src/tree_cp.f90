@@ -563,9 +563,6 @@
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
          (p%sqradius .NE. 0.0_r8)) THEN
 
-         a=0.0_r8
-         b=0.0_r8
-
          CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa)
 
          IF (p%exist_ms .EQ. 0) THEN
@@ -638,9 +635,6 @@
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
          (p%sqradius .NE. 0.0_r8)) THEN
 
-         a=0.0_r8
-         b=0.0_r8
-
          CALL COMP_TCOEFF_DCF(xyz_t(1),xyz_t(2),xyz_t(3), eta)
 
          IF (p%exist_ms .EQ. 0) THEN
@@ -711,8 +705,6 @@
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
          (p%sqradius .NE. 0.0_r8)) THEN
-
-         a=0.0_r8
 
          CALL COMP_TCOEFF_COULOMB(xyz_t(1),xyz_t(2),xyz_t(3))
 
@@ -988,7 +980,7 @@
       DO i=2,torderlim-3
          i1=i-1; i2=i-2;
 
-         DO j=2,torderlim-i
+         DO j=2,torderlim-1-i
             j1=j-1; j2=j-2;
 
             b(1,i,j)=kappax*a(0,i,j)
@@ -1185,7 +1177,7 @@
       DO i=2,torderlim-3
          i1=i-1; i2=i-2;
 
-         DO j=2,torderlim-i
+         DO j=2,torderlim-1-i
             j1=j-1; j2=j-2;
 
             b(1,i,j) = two_etasqx * b(0,i,j)
@@ -1318,7 +1310,7 @@
 ! 1 index 1, others >=2
       DO i=2,torderlim-3
          i1=i-1; i2=i-2 
-         DO j=2,torderlim-i
+         DO j=2,torderlim-1-i
             j1=j-1; j2=j-2
             a(1,i,j)=fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1) &
                            -a(1,i2,j)-a(1,i,j2))
