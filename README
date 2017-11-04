@@ -1,6 +1,6 @@
 !
 !   Author:  Leighton W. Wilson  (lwwilson@umich.edu) 
-!   Based on code originally writted by Henry Boateng (boateng@umich.edu)
+!   With thanks to Henry Boateng (boateng@umich.edu)
 !   Department of Mathematics
 !   University of Michigan, Ann Arbor
 !
@@ -12,7 +12,7 @@
 !   correlation functions (see: Luchko, Joung, Case 2012) at a
 !   set of M targets due to a disjoint set of N source particles.
 !   CP_TREECODE employs the cluster-particle method which is more efficient
-!   when the sources outnumber the targets.
+!   when the targets outnumber the sources.
 !
 !   This version written in fortran for compatibility with AmberTools/RISM.
 !
