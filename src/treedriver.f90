@@ -48,7 +48,7 @@
 
 ! variables needed for f90 DATE_AND_TIME intrinsic
 
-      CHARACTER (LEN=25) :: sampin1,sampin3,sampout
+      CHARACTER (LEN=512) :: sampin1,sampin3,sampout
       REAL(KIND=r8)      :: timedirect,timetree
 
 ! variables for error calculations
