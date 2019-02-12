@@ -35,6 +35,9 @@
       INTEGER :: torder, torderlim, torderflat
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2,cf3
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b
+
+! global array for Chebyshev points.
+      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cheb_pts
       
 ! global variables used when computing potential/force
 
@@ -62,6 +65,7 @@
            REAL(KIND=r8)    :: radius,sqradius,aspect
            INTEGER          :: level,num_children,exist_ms
            REAL(KIND=r8),DIMENSION(:),POINTER :: ms
+           REAL(KIND=r8),DIMENSION(:,:),POINTER :: tinterp
            TYPE(tnode_pointer), DIMENSION(8) :: child
 
            INTEGER,DIMENSION(3) :: xyz_dim, xyz_lowindex, xyz_highindex
@@ -108,11 +112,16 @@
 
       ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), &
                a(-2:torderlim, -2:torderlim, -2:torderlim), &
-               b(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
+               b(-2:torderlim, -2:torderlim, -2:torderlim), &
+               cheb_pts(0:torder), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
       END IF
+
+      DO i = 0, torder
+        cheb_pts(i) = COS(i * pi / torder);
+      END DO
 
 ! initialize arrays for Taylor sums and coeffs
       DO i = 0, torder
@@ -561,22 +570,23 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8)) THEN
-
-         CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa)
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderflat),STAT=err)
+             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
                 STOP
              END IF
 
+             CALL COMP_INTERP(p)
+
              p%ms=0.0_r8
              p%exist_ms=1
          END IF
 
-         CALL COMP_CMS(p)   
+         CALL COMP_CMS_TCF(p, kappa, eta)
     
       ELSE
 
@@ -633,22 +643,23 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8)) THEN
-
-         CALL COMP_TCOEFF_DCF(xyz_t(1),xyz_t(2),xyz_t(3), eta)
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderflat),STAT=err)
+             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
                 STOP
              END IF
 
+             CALL COMP_INTERP(p)
+
              p%ms=0.0_r8
              p%exist_ms=1
          END IF
 
-         CALL COMP_CMS(p)   
+         CALL COMP_CMS_DCF(p, eta)
     
       ELSE
 
@@ -704,22 +715,23 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8)) THEN
-
-         CALL COMP_TCOEFF_COULOMB(xyz_t(1),xyz_t(2),xyz_t(3))
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderflat),STAT=err)
+             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
                 STOP
              END IF
 
+             CALL COMP_INTERP(p)
+
              p%ms=0.0_r8
              p%exist_ms=1
          END IF
 
-         CALL COMP_CMS(p)   
+         CALL COMP_CMS_COULOMB(p)
     
       ELSE
 
@@ -751,27 +763,39 @@
 ! a 3-D Horner's rule.  
 !
         INTEGER,INTENT(IN) :: arrdim
-        TYPE(tnode),POINTER :: ap
+        TYPE(tnode),POINTER,INTENT(IN) :: ap
         REAL(KIND=r8),DIMENSION(arrdim),INTENT(INOUT) :: EnP
 
 ! local variables
 
-        REAL(KIND=r8) :: tx,ty,peng,dx,dy,dz,xl,yl,zl,xm,ym,zm
+        REAL(KIND=r8) :: peng,xl,yl,zl
         INTEGER :: xlind, ylind, zlind, xhind, yhind, zhind, yzhind
-        INTEGER :: i,nn,j,k,k1,k2,k3,kk,porder,porder1
+        INTEGER :: i,nn,j,k,k1,k2,k3,kk
 
-        porder=torder
-        porder1=porder-1
+        REAL(KIND=r8), DIMENSION(0:torder) :: dj, w1i, w2j, w3k, a1i, a2j, a3k
+        REAL(KIND=r8) :: sumA1, sumA2, sumA3, xx, yy, zz, Dd
+        INTEGER :: a1exactind, a2exactind, a3exactind
 
         IF (ap%exist_ms==1) THEN
+
+          dj = 1.0_r8
+          dj(0) = 0.5_r8
+          dj(torder) = 0.5_r8
+
+          DO i = 0, torder
+             IF (MOD(i,2) == 0) THEN
+                w1i(i) = dj(i)
+             ELSE
+                w1i(i) = -dj(i)
+             END IF
+          END DO
+
+          w2j = w1i
+          w3k = w1i
 
           xl=ap%xyz_min(1)
           yl=ap%xyz_min(2)
           zl=ap%xyz_min(3)
-
-          xm=ap%xyz_mid(1)
-          ym=ap%xyz_mid(2)
-          zm=ap%xyz_mid(3)
 
           xlind=ap%xyz_lowindex(1)
           ylind=ap%xyz_lowindex(2)
@@ -786,32 +810,73 @@
              DO j=ylind,yhind
                 DO k=zlind,zhind
 
+                   sumA1 = 0.0_r8
+                   sumA2 = 0.0_r8
+                   sumA3 = 0.0_r8
+
+                   a1exactind = -1
+                   a2exactind = -1
+                   a3exactind = -1
+
+                   peng = 0.0_r8
+                   kk = 0
+
                    nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
 
-                   dx=xl+(i-xlind)*xyz_ddglob(1)-xm
-                   dy=yl+(j-ylind)*xyz_ddglob(2)-ym
-                   dz=zl+(k-zlind)*xyz_ddglob(3)-zm
+                   xx=xl+(i-xlind)*xyz_ddglob(1)
+                   yy=yl+(j-ylind)*xyz_ddglob(2)
+                   zz=zl+(k-zlind)*xyz_ddglob(3)
 
-                   kk=1
-                   peng=ap%ms(kk)
+                   DO k1 = 0, torder
 
-                   DO k3=porder1,0,-1
-                      kk=kk+1
-                      ty=ap%ms(kk)
+                      a1i(k1) = w1i(k1) / (xx - ap%tinterp(1,k1))
+                      a2j(k1) = w2j(k1) / (yy - ap%tinterp(2,k1))
+                      a3k(k1) = w3k(k1) / (zz - ap%tinterp(3,k1))
 
-                      DO k2=porder1-k3,0,-1
-                         kk=kk+1
-                         tx=ap%ms(kk)
+                      sumA1 = sumA1 + a1i(k1)
+                      sumA2 = sumA2 + a2j(k1)
+                      sumA3 = sumA3 + a3k(k1)
 
-                         DO k1=porder1-k3-k2,0,-1
-                            kk=kk+1
-                            tx  = dx * tx + ap%ms(kk)
+                      IF (ABS(xx - ap%tinterp(1,k1)) < TINY(1.0_r8)) THEN
+                         a1exactind = k1
+                      END IF
+
+                      IF (ABS(yy - ap%tinterp(2,k1)) < TINY(1.0_r8)) THEN
+                         a2exactind = k1
+                      END IF
+
+                      IF (ABS(zz - ap%tinterp(3,k1)) < TINY(1.0_r8)) THEN
+                         a3exactind = k1
+                      END IF
+                   END DO
+
+                   IF (a1exactind > -1) THEN
+                      sumA1 = 1.0_r8
+                      a1i = 0.0_r8
+                      a1i(a1exactind) = 1.0_r8
+                   END IF
+
+                   IF (a2exactind > -1) THEN
+                      sumA2 = 1.0_r8
+                      a2j = 0.0_r8
+                      a2j(a2exactind) = 1.0_r8
+                   END IF
+
+                   IF (a3exactind > -1) THEN
+                      sumA3 = 1.0_r8
+                      a3k = 0.0_r8
+                      a3k(a3exactind) = 1.0_r8
+                   END IF
+
+                   Dd = 1.0_r8 / (sumA1 * sumA2 * sumA3);
+
+                   DO k1 = 0, torder
+                      DO k2 = 0, torder
+                         DO k3 = 0, torder
+                            kk = kk + 1
+                            peng = peng + ap%ms(kk) * a1i(k1) * a2j(k2) * a3k(k3) * Dd
                          END DO
-
-                         ty  = dy * ty + tx
                       END DO
-
-                      peng = dz * peng + ty
                    END DO
 
                    EnP(nn)=EnP(nn)+peng
@@ -833,545 +898,132 @@
 !!!!!!!!!!!!!!!
 
 
-      SUBROUTINE COMP_TCOEFF_TCF(dx,dy,dz,kappa)
+      SUBROUTINE COMP_INTERP(p)
       IMPLICIT NONE
+
+      TYPE(tnode),POINTER :: p
+
+      INTEGER :: i
+!      REAL(KIND=r8) :: x0, x1, y0, y1, z0, z1
 !
-! COMP_TCOEFF computes the Taylor coefficients of the potential
-! using a recurrence formula.  The center of the expansion is the
-! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
-!
-      REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
-      REAL(KIND=r8),INTENT(IN)  :: kappa
+!      x0 = p%xyz_min(1)
+!      x1 = p%xyz_max(1)
+!      y0 = p%xyz_min(2)
+!      y1 = p%xyz_max(2)
+!      z0 = p%xyz_min(3)
+!      z1 = p%xyz_max(3)
 
-! local varaibles
-
-      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
-      REAL(KIND=r8) :: kappax,kappay,kappaz
-      INTEGER :: i,j,k,i1,i2,j1,j2,k1,k2
-
-! setup variables
-
-      ddx = 2.0_r8*dx
-      ddy = 2.0_r8*dy
-      ddz = 2.0_r8*dz
-
-      kappax = kappa*dx
-      kappay = kappa*dy
-      kappaz = kappa*dz
-
-      dist = dx*dx + dy*dy + dz*dz
-      fac = 1.0_r8 / dist
-      dist = SQRT(dist)
-
-! 0th coeff or function val
-
-      b(0,0,0)=-2_r8*EXP(-kappa*dist)
-      a(0,0,0)=b(0,0,0)/dist
-
-! 2 indices are 0
-
-      b(1,0,0)=kappax*a(0,0,0)
-      b(0,1,0)=kappay*a(0,0,0)
-      b(0,0,1)=kappaz*a(0,0,0)
-
-      a(1,0,0)=fac*dx*(a(0,0,0)+kappa*b(0,0,0))
-      a(0,1,0)=fac*dy*(a(0,0,0)+kappa*b(0,0,0))
-      a(0,0,1)=fac*dz*(a(0,0,0)+kappa*b(0,0,0))
-
-
-      DO i=2,torderlim
-         i1=i-1; i2=i-2;
-
-         b(i,0,0)=cf1(i)*kappa*(dx*a(i1,0,0)-a(i2,0,0))
-         b(0,i,0)=cf1(i)*kappa*(dy*a(0,i1,0)-a(0,i2,0))
-         b(0,0,i)=cf1(i)*kappa*(dz*a(0,0,i1)-a(0,0,i2))
-
-         a(i,0,0)=fac*(ddx*cf2(i)*a(i1,0,0)-cf3(i)*a(i2,0,0)+&
-                  cf1(i)*kappa*(dx*b(i1,0,0)-b(i2,0,0)))
-         a(0,i,0)=fac*(ddy*cf2(i)*a(0,i1,0)-cf3(i)*a(0,i2,0)+&
-                  cf1(i)*kappa*(dy*b(0,i1,0)-b(0,i2,0)))
-         a(0,0,i)=fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2)+&
-                  cf1(i)*kappa*(dz*b(0,0,i1)-b(0,0,i2)))
+      DO i = 0, torder
+!         p%tinterp(1,i) = x0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (x1 - x0)
+!         p%tinterp(2,i) = y0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (y1 - y0)
+!         p%tinterp(3,i) = z0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (z1 - z0)
+         p%tinterp(:,i) = (p%xyz_min) + (cheb_pts(i) + 1.0_r8)/2.0_r8 &
+                        * (p%xyz_max - p%xyz_min)
       END DO
 
-! 1 index 0, 1 index 1, other >=1
-
-      b(1,1,0)=kappax*a(0,1,0)
-      b(1,0,1)=kappax*a(0,0,1)
-      b(0,1,1)=kappay*a(0,0,1)
-
-      a(1,1,0)=fac*(dx*a(0,1,0)+ddy*a(1,0,0)+kappax*b(0,1,0))
-      a(1,0,1)=fac*(dx*a(0,0,1)+ddz*a(1,0,0)+kappax*b(0,0,1))
-      a(0,1,1)=fac*(dy*a(0,0,1)+ddz*a(0,1,0)+kappay*b(0,0,1))
-
-      DO i=2,torderlim-1
-         i1=i-1; i2=i-2;
-
-         b(1,0,i)=kappax*a(0,0,i)
-         b(0,1,i)=kappay*a(0,0,i)
-         b(0,i,1)=kappaz*a(0,i,0)
-         b(1,i,0)=kappax*a(0,i,0)
-         b(i,1,0)=kappay*a(i,0,0)
-         b(i,0,1)=kappaz*a(i,0,0)
-
-         a(1,0,i)=fac*(dx*a(0,0,i)+ddz*a(1,0,i1)-a(1,0,i2)+&
-                  kappax*b(0,0,i))
-         a(0,1,i)=fac*(dy*a(0,0,i)+ddz*a(0,1,i1)-a(0,1,i2)+&
-                  kappay*b(0,0,i))
-         a(0,i,1)=fac*(dz*a(0,i,0)+ddy*a(0,i1,1)-a(0,i2,1)+&
-                  kappaz*b(0,i,0))
-         a(1,i,0)=fac*(dx*a(0,i,0)+ddy*a(1,i1,0)-a(1,i2,0)+&
-                  kappax*b(0,i,0))
-         a(i,1,0)=fac*(dy*a(i,0,0)+ddx*a(i1,1,0)-a(i2,1,0)+&
-                  kappay*b(i,0,0))
-         a(i,0,1)=fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1)+&
-                  kappaz*b(i,0,0))
-      END DO
-
-! 1 index 0, others >= 2
-
-      DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
-         DO j=2,torderlim-i
-            j1=j-1; j2=j-2;
-
-            b(i,j,0)=cf1(i)*kappa*(dx*a(i1,j,0)-a(i2,j,0))
-            b(i,0,j)=cf1(i)*kappa*(dx*a(i1,0,j)-a(i2,0,j))
-            b(0,i,j)=cf1(i)*kappa*(dy*a(0,i1,j)-a(0,i2,j))
-
-            a(i,j,0)=fac*(ddx*cf2(i)*a(i1,j,0)+ddy*a(i,j1,0) &
-                     -cf3(i)*a(i2,j,0)-a(i,j2,0)+&
-                     cf1(i)*kappa*(dx*b(i1,j,0)-b(i2,j,0)))
-            a(i,0,j)=fac*(ddx*cf2(i)*a(i1,0,j)+ddz*a(i,0,j1)&
-                     -cf3(i)*a(i2,0,j)-a(i,0,j2)+&
-                     cf1(i)*kappa*(dx*b(i1,0,j)-b(i2,0,j)))
-            a(0,i,j)=fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1)&
-                     -cf3(i)*a(0,i2,j)-a(0,i,j2)+&
-                     cf1(i)*kappa*(dy*b(0,i1,j)-b(0,i2,j)))
-         END DO
-      END DO
-
-! 2 indices 1, other >= 1
-! b(1,1,1) is correct, but a little tricky!
-!      b(1,1,1)=5.0*dz*fac*b(1,1,0)
-
-      b(1,1,1)=kappax*a(0,1,1)
-      a(1,1,1)=fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
-               kappax*b(0,1,1))
-
-      DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
-         b(1,1,i)=kappax*a(0,1,i)
-         b(1,i,1)=kappax*a(0,i,1)
-         b(i,1,1)=kappay*a(i,0,1)
-
-         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i1)&
-                 -a(1,1,i2)+kappax*b(0,1,i))
-         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i1,1)+ddz*a(1,i,0)&
-                 -a(1,i2,1)+kappax*b(0,i,1))
-         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0)&
-                 -a(i2,1,1)+kappay*b(i,0,1))
-      END DO
-
-! 1 index 1, others >=2
-
-      DO i=2,torderlim-3
-         i1=i-1; i2=i-2;
-
-         DO j=2,torderlim-1-i
-            j1=j-1; j2=j-2;
-
-            b(1,i,j)=kappax*a(0,i,j)
-            b(i,1,j)=kappay*a(i,0,j)
-            b(i,j,1)=kappaz*a(i,j,0)
-
-            a(1,i,j)=fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1)&
-                    -a(1,i2,j)-a(1,i,j2)+kappax*b(0,i,j))
-            a(i,1,j)=fac*(dy*a(i,0,j)+ddx*a(i1,1,j)+ddz*a(i,1,j1)&
-                    -a(i2,1,j)-a(i,1,j2)+kappay*b(i,0,j))
-            a(i,j,1)=fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1)&
-                    -a(i2,j,1)-a(i,j2,1)+kappaz*b(i,j,0))
-
-         END DO
-      END DO
-
-! all indices >=2
-
-      DO k=2,torderlim-4
-         k1=k-1; k2=k-2;
-
-         DO j=2,torderlim-2-k
-            j1=j-1; j2=j-2;
-
-            DO i=2,torderlim-k-j
-               i1=i-1; i2=i-2;
-
-!               b(i,j,k)=cf1(i)*kappa*(dx*a(i1,j,k)-a(i2,j,k))
-!
-!               a(i,j,k)=fac*(ddx*cf2(i)*a(i1,j,k)+ddy*a(i,j1,k)&
-!                       +ddz*a(i,j,k1)-cf3(i)*a(i2,j,k)&
-!                       -a(i,j2,k)-a(i,j,k2)+&
-!                       cf1(i)*kappa*(dx*b(i1,j,k)-b(i2,j,k)))
-
-               b(i,j,k) = cf1(i+j+k) * kappa &
-                        * (dx*a(i1,j,k) + dy*a(i,j1,k) + dz*a(i,j,k1) &
-                            - a(i2,j,k)    - a(i,j2,k)    - a(i,j,k2))
-
-               a(i,j,k) = fac &
-                        * (cf2(i+j+k) * (ddx*a(i1,j,k) + ddy*a(i,j1,k) + ddz*a(i,j,k1)) &
-                         - cf3(i+j+k) * (    a(i2,j,k) +     a(i,j2,k) +     a(i,j,k2)) &
-                         + cf1(i+j+k) * kappa &
-                                       * (dx*b(i1,j,k) +  dy*b(i,j1,k) +  dz*b(i,j,k1) &
-                                           - b(i2,j,k)     - b(i,j2,k)     - b(i,j,k2)))
-
-            END DO
-         END DO
-      END DO
-
-      RETURN
-      END SUBROUTINE COMP_TCOEFF_TCF
+      END SUBROUTINE COMP_INTERP
 
 
 !!!!!!!!!!!!!!!
 
 
-      SUBROUTINE COMP_TCOEFF_DCF(dx,dy,dz,eta)
+      SUBROUTINE COMP_CMS_TCF(p, kappa, eta)
       IMPLICIT NONE
 !
-! COMP_TCOEFF computes the Taylor coefficients of the potential
-! using a recurrence formula.  The center of the expansion is the
-! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
+! COMP_CMS computes the moments for node P needed in the Taylor approximation
 !
-      REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
-      REAL(KIND=r8),INTENT(IN)  :: eta
-
-! local varaibles
-
-      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
-      REAL(KIND=r8) :: two_etasq, two_etasqx
-      REAL(KIND=r8) :: two_etasqy, two_etasqz
-      INTEGER :: i,j,k,i1,i2,j1,j2,k1,k2
-
-! setup variables
-
-      ddx = 2.0_r8*dx
-      ddy = 2.0_r8*dy
-      ddz = 2.0_r8*dz
-
-      two_etasq = 2.0_r8 / (eta*eta)
-      two_etasqx = two_etasq*dx
-      two_etasqy = two_etasq*dy
-      two_etasqz = two_etasq*dz
-
-      dist = dx*dx + dy*dy + dz*dz
-      fac = 1.0_r8 / dist
-      dist = SQRT(dist)
-
-! 0th coeff or function val
-
-      b(0,0,0) = -eta/sqrt(pi) * exp(-dist*dist/(eta*eta))
-      a(0,0,0) = -erf(dist/eta)/dist
-
-!!!
-!!!Fix the rest of this!!!
-!!!
-! 2 indices are 0
-
-      b(1,0,0) = two_etasqx * b(0,0,0)
-      b(0,1,0) = two_etasqy * b(0,0,0)
-      b(0,0,1) = two_etasqz * b(0,0,0)
-
-      a(1,0,0) = fac*dx*(a(0,0,0) + b(1,0,0))
-      a(0,1,0) = fac*dy*(a(0,0,0) + b(0,1,0))
-      a(0,0,1) = fac*dz*(a(0,0,0) + b(0,0,1))
-
-
-      DO i=2,torderlim
-         i1=i-1; i2=i-2;
-
-         b(i,0,0) = cf1(i)*two_etasq * (dx*b(i1,0,0) - b(i2,0,0))
-         b(0,i,0) = cf1(i)*two_etasq * (dy*b(0,i1,0) - b(0,i2,0))
-         b(0,0,i) = cf1(i)*two_etasq * (dz*b(0,0,i1) - b(0,0,i2))
-
-         a(i,0,0) = fac*(ddx*cf2(i)*a(i1,0,0)-cf3(i)*a(i2,0,0)+&
-                    b(i,0,0))
-         a(0,i,0) = fac*(ddy*cf2(i)*a(0,i1,0)-cf3(i)*a(0,i2,0)+&
-                    b(0,i,0))
-         a(0,0,i) = fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2)+&
-                    b(0,0,i))
-      END DO
-
-! 1 index 0, 1 index 1, other >=1
-
-      b(1,1,0) = two_etasqx * b(0,1,0)
-      b(1,0,1) = two_etasqx * b(0,0,1)
-      b(0,1,1) = two_etasqy * b(0,0,1)
-
-      a(1,1,0) = fac*(dx*a(0,1,0)+ddy*a(1,0,0) + b(1,1,0))
-      a(1,0,1) = fac*(dx*a(0,0,1)+ddz*a(1,0,0) + b(1,0,1))
-      a(0,1,1) = fac*(dy*a(0,0,1)+ddz*a(0,1,0) + b(0,1,1))
-
-      DO i=2,torderlim-1
-         i1=i-1; i2=i-2;
-
-         b(1,0,i) = two_etasqx * b(0,0,i)
-         b(0,1,i) = two_etasqy * b(0,0,i)
-         b(0,i,1) = two_etasqz * b(0,i,0)
-         b(1,i,0) = two_etasqx * b(0,i,0)
-         b(i,1,0) = two_etasqy * b(i,0,0)
-         b(i,0,1) = two_etasqz * b(i,0,0)
-
-         a(1,0,i) = fac*(dx*a(0,0,i)+ddz*a(1,0,i1)-a(1,0,i2)+&
-                    b(1,0,i))
-         a(0,1,i) = fac*(dy*a(0,0,i)+ddz*a(0,1,i1)-a(0,1,i2)+&
-                    b(0,1,i))
-         a(0,i,1) = fac*(dz*a(0,i,0)+ddy*a(0,i1,1)-a(0,i2,1)+&
-                    b(0,i,1))
-         a(1,i,0) = fac*(dx*a(0,i,0)+ddy*a(1,i1,0)-a(1,i2,0)+&
-                    b(1,i,0))
-         a(i,1,0) = fac*(dy*a(i,0,0)+ddx*a(i1,1,0)-a(i2,1,0)+&
-                    b(i,1,0))
-         a(i,0,1) = fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1)+&
-                    b(i,0,1))
-      END DO
-
-! 1 index 0, others >= 2
-
-      DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
-         DO j=2,torderlim-i
-            j1=j-1; j2=j-2;
-
-            b(i,j,0) = cf1(i)*two_etasq * (dx*b(i1,j,0) - b(i2,j,0))
-            b(i,0,j) = cf1(i)*two_etasq * (dx*b(i1,0,j) - b(i2,0,j))
-            b(0,i,j) = cf1(i)*two_etasq * (dx*b(0,i1,j) - b(0,i2,j))
-
-            a(i,j,0) = fac*(ddx*cf2(i)*a(i1,j,0)+ddy*a(i,j1,0) &
-                       -cf3(i)*a(i2,j,0)-a(i,j2,0)+&
-                       b(i,j,0))
-            a(i,0,j) = fac*(ddx*cf2(i)*a(i1,0,j)+ddz*a(i,0,j1)&
-                       -cf3(i)*a(i2,0,j)-a(i,0,j2)+&
-                       b(i,0,j))
-            a(0,i,j) = fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1)&
-                       -cf3(i)*a(0,i2,j)-a(0,i,j2)+&
-                       b(0,i,j))
-         END DO
-      END DO
-
-! 2 indices 1, other >= 1
-! b(1,1,1) is correct, but a little tricky!
-!      b(1,1,1)=5.0*dz*fac*b(1,1,0)
-
-      b(1,1,1) = two_etasqx * b(0,1,1)
-      a(1,1,1) = fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
-                 b(1,1,1))
-
-      DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
-         b(1,1,i) = two_etasqx * b(0,1,i)
-         b(1,i,1) = two_etasqx * b(0,i,1)
-         b(i,1,1) = two_etasqy * b(i,0,1)
-
-         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i1)&
-                 -a(1,1,i2) + b(1,1,i))
-         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i1,1)+ddz*a(1,i,0)&
-                 -a(1,i2,1) + b(1,i,1))
-         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0)&
-                 -a(i2,1,1) + b(i,1,1))
-      END DO
-
-! 1 index 1, others >=2
-
-      DO i=2,torderlim-3
-         i1=i-1; i2=i-2;
-
-         DO j=2,torderlim-1-i
-            j1=j-1; j2=j-2;
-
-            b(1,i,j) = two_etasqx * b(0,i,j)
-            b(i,1,j) = two_etasqy * b(i,0,j)
-            b(i,j,1) = two_etasqz * b(i,j,0)
-
-            a(1,i,j) = fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1)&
-                      -a(1,i2,j)-a(1,i,j2) + b(1,i,j))
-            a(i,1,j) = fac*(dy*a(i,0,j)+ddx*a(i1,1,j)+ddz*a(i,1,j1)&
-                      -a(i2,1,j)-a(i,1,j2) + b(i,1,j))
-            a(i,j,1) = fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1)&
-                      -a(i2,j,1)-a(i,j2,1) + b(i,j,1))
-
-         END DO
-      END DO
-
-! all indices >=2
-
-      DO k=2,torderlim-4
-         k1=k-1; k2=k-2;
-
-         DO j=2,torderlim-2-k
-            j1=j-1; j2=j-2;
-
-            DO i=2,torderlim-k-j
-               i1=i-1; i2=i-2;
-
-!               b(i,j,k) = cf1(i)*two_etasq * (dx*b(i1,j,k) - b(i2,j,k))
-!
-!               a(i,j,k) = fac * (ddx*cf2(i)*a(i1,j,k) + ddy*a(i,j1,k) &
-!                                   + ddz*a(i,j,k1) - cf3(i)*a(i2,j,k) &
-!                                   - a(i,j2,k) - a(i,j,k2) + b(i,j,k))
-
-               b(i,j,k) = cf1(i+j+k) * two_etasq &
-                        * (dx*b(i1,j,k) + dy*b(i,j1,k) + dz*b(i,j,k1) &
-                            - b(i2,j,k)    - b(i,j2,k)    - b(i,j,k2))
-
-               a(i,j,k) = fac &
-                        * (cf2(i+j+k) * (ddx*a(i1,j,k) + ddy*a(i,j1,k) + ddz*a(i,j,k1)) &
-                         - cf3(i+j+k) * (    a(i2,j,k) +     a(i,j2,k) +     a(i,j,k2)) &
-                           + b(i,j,k))
-
-            END DO
-         END DO
-      END DO
-
-      RETURN
-
-      END SUBROUTINE COMP_TCOEFF_DCF
-
-
-!!!!!!!!!!!!!!!
-
-
-      SUBROUTINE COMP_TCOEFF_COULOMB(dx,dy,dz)
-      IMPLICIT NONE
-!
-! COMP_TCOEFF computes the Taylor coefficients of the potential
-! using a recurrence formula.  The center of the expansion is the
-! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
-!
-      REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
+      TYPE(tnode),POINTER :: p
+      REAL(KIND=r8),INTENT(IN)  :: kappa, eta
 
 ! local variables
 
-      REAL(KIND=r8) :: ddx,ddy,ddz,fac,sqfac
-      INTEGER :: i,j,k,i1,i2,j1,j2,k1,k2
+      INTEGER :: k1,k2,k3,kk
+      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
+      REAL(KIND=r8) :: rad, kap_eta_2, kap_rad, rad_eta
 
-! setup variables
+      kk=0
+      kap_eta_2 = kappa * eta / 2_r8
 
-      ddx=2.0_r8*dx
-      ddy=2.0_r8*dy
-      ddz=2.0_r8*dz
-      fac=1.0_r8/(dx*dx+dy*dy+dz*dz)
-      sqfac=SQRT(fac)
-
-! 0th coeff or function val 
-
-      a(0,0,0)=-sqfac
-
-! 2 indices are 0
-
-      a(1,0,0)=fac*dx*a(0,0,0)
-      a(0,1,0)=fac*dy*a(0,0,0)
-      a(0,0,1)=fac*dz*a(0,0,0)
-  
-      DO i=2,torderlim
-         i1=i-1; i2=i-2
-         a(i,0,0)=fac*(ddx*cf2(i)*a(i1,0,0)-cf3(i)*a(i2,0,0))
-         a(0,i,0)=fac*(ddy*cf2(i)*a(0,i1,0)-cf3(i)*a(0,i2,0))
-         a(0,0,i)=fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2))
+      DO k1=0,torder
+!         dxt = tarpos(1) - p%tx(i,1)
+!         dyt = tarpos(2) - p%ty(i,2)
+!         dzt = tarpos(3) - p%tz(i,3)
+!         temp_i(i,1) = dxt**2
+!         temp_j(i,2) = dyt**2
+!         temp_k(i,3) = dzt**2
+          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
       END DO
 
-! 1 index 0, 1 index 1, other >=1
+      DO k1=0,torder
+         DO k2=0,torder
+            DO k3=0,torder
+               kk=kk+1
+               rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
 
-      a(1,1,0)=fac*(dx*a(0,1,0)+ddy*a(1,0,0))
-      a(1,0,1)=fac*(dx*a(0,0,1)+ddz*a(1,0,0))
-      a(0,1,1)=fac*(dy*a(0,0,1)+ddz*a(0,1,0))
+               kap_rad = kappa * rad
+               rad_eta = rad / eta
 
-      DO i=2,torderlim-1
-         i1=i-1; i2=i-2
-         a(1,0,i)=fac*(dx*a(0,0,i)+ddz*a(1,0,i1)-a(1,0,i2))
-         a(0,1,i)=fac*(dy*a(0,0,i)+ddz*a(0,1,i1)-a(0,1,i2))
-         a(0,i,1)=fac*(dz*a(0,i,0)+ddy*a(0,i1,1)-a(0,i2,1))
-         a(1,i,0)=fac*(dx*a(0,i,0)+ddy*a(1,i1,0)-a(1,i2,0))
-         a(i,1,0)=fac*(dy*a(i,0,0)+ddx*a(i1,1,0)-a(i2,1,0))
-         a(i,0,1)=fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1))
-      END DO
-  
-! 1 index 0, others >= 2
-      
-      DO i=2,torderlim-2 
-         i1=i-1; i2=i-2
-         DO j=2,torderlim-i
-            j1=j-1; j2=j-2
-            a(i,j,0)=fac*(ddx*cf2(i)*a(i1,j,0)+ddy*a(i,j1,0) &
-                            -cf3(i)*a(i2,j,0)-a(i,j2,0))
-            a(i,0,j)=fac*(ddx*cf2(i)*a(i1,0,j)+ddz*a(i,0,j1) &
-                            -cf3(i)*a(i2,0,j)-a(i,0,j2))
-            a(0,i,j)=fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1) &
-                            -cf3(i)*a(0,i2,j)-a(0,i,j2))
-         END DO
-      END DO
-
- 
-! 2 indices 1, other >= 1
-
-      a(1,1,1)=fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0))
-
-      DO i=2,torderlim-2
-         i1=i-1; i2=i-2
-         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i1) &
-                        -a(1,1,i2))
-         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i1,1)+ddz*a(1,i,0) &
-                        -a(1,i2,1))
-         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0) &
-                        -a(i2,1,1))
-      END DO
-
-! 1 index 1, others >=2
-      DO i=2,torderlim-3
-         i1=i-1; i2=i-2 
-         DO j=2,torderlim-1-i
-            j1=j-1; j2=j-2
-            a(1,i,j)=fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1) &
-                           -a(1,i2,j)-a(1,i,j2))
-            a(i,1,j)=fac*(dy*a(i,0,j)+ddx*a(i1,1,j)+ddz*a(i,1,j1) &
-                           -a(i2,1,j)-a(i,1,j2))
-            a(i,j,1)=fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1) &
-                           -a(i2,j,1)-a(i,j2,1))
-         END DO
-      END DO
-
-! all indices >=2
-      DO k=2,torderlim-4
-         k1=k-1; k2=k-2
-         DO j=2,torderlim-2-k
-            j1=j-1; j2=j-2
-            DO i=2,torderlim-k-j
-                i1=i-2; i2=i-2;
-
-!               a(i,j,k)=fac*(ddx*cf2(i)*a(i-1,j,k)+ddy*a(i,j1,k) &
-!                           +ddz*a(i,j,k1)-cf3(i)*a(i-2,j,k) &
-!                           -a(i,j2,k)-a(i,j,k2))
-
-               a(i,j,k) = fac &
-                        * (cf2(i+j+k) * (ddx*a(i1,j,k) + ddy*a(i,j1,k) + ddz*a(i,j,k1)) &
-                         - cf3(i+j+k) * (    a(i2,j,k) +     a(i,j2,k) +     a(i,j,k2)))
-
-            END DO
+               p%ms(kk) = p%ms(kk) - tarposq / rad &
+                                   * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
+                                   -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
+           END DO
          END DO
       END DO
 
       RETURN
-
-      END SUBROUTINE COMP_TCOEFF_COULOMB
-
-
-!!!!!!!!!!!!!!!
+      END SUBROUTINE COMP_CMS_TCF
 
 
-      SUBROUTINE COMP_CMS(p)
+!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      SUBROUTINE COMP_CMS_DCF(p, eta)
+      IMPLICIT NONE
+!
+! COMP_CMS computes the moments for node P needed in the Taylor approximation
+!
+      TYPE(tnode),POINTER :: p
+      REAL(KIND=r8),INTENT(IN)  :: eta
+
+! local variables
+
+      INTEGER :: k1,k2,k3,kk
+      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
+      REAL(KIND=r8) :: rad, rad_eta
+
+      kk=0
+
+      DO k1=0,torder
+!         dxt = tarpos(1) - p%tx(i,1)
+!         dyt = tarpos(2) - p%ty(i,2)
+!         dzt = tarpos(3) - p%tz(i,3)
+!         temp_i(i,1) = dxt**2
+!         temp_j(i,2) = dyt**2
+!         temp_k(i,3) = dzt**2
+          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
+      END DO
+
+      DO k1=0,torder
+         DO k2=0,torder
+            DO k3=0,torder
+               kk=kk+1
+
+               rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
+               rad_eta = rad / eta
+
+               p%ms(kk) = p%ms(kk) - tarposq / rad * erf(rad_eta)
+           END DO
+         END DO
+      END DO
+
+      RETURN
+      END SUBROUTINE COMP_CMS_DCF
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+      SUBROUTINE COMP_CMS_COULOMB(p)
       IMPLICIT NONE
 !
 ! COMP_CMS computes the moments for node P needed in the Taylor approximation
@@ -1381,20 +1033,32 @@
 ! local variables
 
       INTEGER :: k1,k2,k3,kk
+      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
 
       kk=0
-        
-      DO k3=torder,0,-1
-         DO k2=torder-k3,0,-1
-            DO k1=torder-k3-k2,0,-1
+
+      DO k1=0,torder
+!         dxt = tarpos(1) - p%tx(i,1)
+!         dyt = tarpos(2) - p%ty(i,2)
+!         dzt = tarpos(3) - p%tz(i,3)
+!         temp_i(i,1) = dxt**2
+!         temp_j(i,2) = dyt**2
+!         temp_k(i,3) = dzt**2
+          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
+      END DO
+
+
+      DO k1=0,torder
+         DO k2=0,torder
+            DO k3=0,torder
                kk=kk+1
-               p%ms(kk)=p%ms(kk)+tarposq*a(k1,k2,k3)
+               p%ms(kk) = p%ms(kk) - tarposq / SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
            END DO
          END DO
       END DO
          
       RETURN
-      END SUBROUTINE COMP_CMS
+      END SUBROUTINE COMP_CMS_COULOMB
 
 
 !!!!!!!!!!!!!!!!!!!!!!!!
@@ -1417,8 +1081,10 @@
 
       INTEGER :: i,j,k,nn
       REAL(KIND=r8) :: tx,ty,tz,xl,yl,zl,rad
-      INTEGER :: xlind,ylind,zlind,xhind,yhind,zhind, yzhind
+      INTEGER :: xlind,ylind,zlind,xhind,yhind,zhind,yzhind
       REAL(KIND=r8) :: kap_eta_2, kap_rad, rad_eta
+
+      kap_eta_2 = kappa * eta / 2_r8
 
       xl=p%xyz_min(1)
       yl=p%xyz_min(2)
@@ -1434,16 +1100,15 @@
 
       yzhind=xyz_dimglob(2)*xyz_dimglob(3)
       DO i=xlind,xhind
+         tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
          DO j=ylind,yhind
+            ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
             DO k=zlind,zhind
 
-               nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
-               tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
-               ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
                tz=zl+(k-zlind)*xyz_ddglob(3)-tarpos(3)
+               nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
 
                rad = SQRT(tx*tx + ty*ty + tz*tz)
-               kap_eta_2 = kappa * eta / 2_r8
                kap_rad = kappa * rad
                rad_eta = rad / eta
 
@@ -1496,12 +1161,12 @@
 
       yzhind=xyz_dimglob(2)*xyz_dimglob(3)
       DO i=xlind,xhind
+         tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
          DO j=ylind,yhind
+            ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
             DO k=zlind,zhind
 
                nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
-               tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
-               ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
                tz=zl+(k-zlind)*xyz_ddglob(3)-tarpos(3)
 
                rad = SQRT(tx*tx + ty*ty + tz*tz)
@@ -1552,12 +1217,12 @@
 
       yzhind=xyz_dimglob(2)*xyz_dimglob(3)
       DO i=xlind,xhind
+         tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
          DO j=ylind,yhind
+            ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
             DO k=zlind,zhind
 
                nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
-               tx=xl+(i-xlind)*xyz_ddglob(1)-tarpos(1)
-               ty=yl+(j-ylind)*xyz_ddglob(2)-tarpos(2)
                tz=zl+(k-zlind)*xyz_ddglob(3)-tarpos(3)
 
                EnP(nn) = EnP(nn) - tarposq / SQRT(tx*tx + ty*ty + tz*tz)
