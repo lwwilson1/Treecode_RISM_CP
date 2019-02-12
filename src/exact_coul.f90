@@ -26,7 +26,7 @@
       CHARACTER (LEN=8)  :: datec
       CHARACTER (LEN=10) :: timec
       CHARACTER (LEN=5)  :: zonec
-      CHARACTER (LEN=30) :: sampin1,sampin2,sampout
+      CHARACTER (LEN=512) :: sampin1,sampin2,sampout
       REAL(KIND=r8)      :: timedirect
 
 ! local variables
