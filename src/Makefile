@@ -4,8 +4,8 @@ TARGET = treecp
 AOFILES = exact_coul.o 
 ATARGET = direct
 
-AOFILES = exact_coul_grid.o 
-ATARGET = direct-grid
+BOFILES = exact_coul_grid.o 
+BTARGET = direct-grid
 
 CC = gfortran
 FFLAGS = -Wall -Wextra -O3
@@ -15,6 +15,9 @@ $(TARGET): $(OFILES)
 
 $(ATARGET): $(AOFILES)
 	$(CC) $(AOFILES) -o $@
+
+$(BTARGET): $(BOFILES)
+	$(CC) $(BOFILES) -o $@
 
 
 treedriver.o: treedriver.f90
@@ -34,5 +37,5 @@ treecode_procedures.mod: tree_cp.f90 tree_cp.o
 
 
 clean:
-	rm -f $(OFILES) $(AOFILES) $(TARGET) $(ATARGET) *.mod
+	rm -f $(OFILES) $(AOFILES) $(BOFILES) $(TARGET) $(ATARGET) $(BTARGET) *.mod
 
