@@ -218,14 +218,14 @@
       WRITE(6,'("   Relative 2 norm error in potential: ",ES15.8)') reln2err
       WRITE(6,*) ' '
          
-      write(85,15)numparsS,numparsT,maxparnodeT,order,theta
-      write(85,16)ABS((tpeng-dpeng)/dpeng),reln2err,timedirect,timetree
+      write(85,15) numparsS, ", ", numparsT, ", ", maxparnodeT, ", ", order, ", ", theta, &
+                   ", ", ABS((tpeng-dpeng)/dpeng), ", ", reln2err, ", ", timedirect, &
+                   ", ", timetree 
 
       CLOSE(unit=85)
 
  13   FORMAT(E24.16)
- 15   FORMAT(I8,2X,I8,2X,I4,2X,I3,2X,F12.8)
- 16   FORMAT(E24.16,2X,E24.16,2X,F24.16,2X,F24.16) 
+ 15   FORMAT(I8,A,I8,A,I4,A,I3,A,F12.8,A,E24.16,A,E24.16,A,F24.16,A,F24.16) 
  17   FORMAT(14X,E24.16)
 100   FORMAT(A7, A5, A5, A7, A6, F8.3, F8.3, F8.3, F8.4, A8, A9) 
 

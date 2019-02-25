@@ -27,14 +27,12 @@
 
 ! r8 is 8-byte (double precision) real
 
-      INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(12)
+      INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(15,307)
       REAL(KIND=r8),PARAMETER :: pi = 4_r8*ATAN(1.D0)
 
 ! global variables for taylor expansions
 
-      INTEGER :: torder, torderlim, torderflat
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2,cf3
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b
+      INTEGER :: torder, torderlim
 
 ! global array for Chebyshev points.
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cheb_pts
@@ -99,7 +97,6 @@
 
       torder=order
       torderlim=torder+1
-      torderflat=torderlim*(torderlim+1)*(torderlim+2)/6
       thetasq=theta*theta
 
       xyz_dimglob = xyzdim
@@ -110,10 +107,7 @@
 
 ! allocate global Taylor expansion variables
 
-      ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), &
-               a(-2:torderlim, -2:torderlim, -2:torderlim), &
-               b(-2:torderlim, -2:torderlim, -2:torderlim), &
-               cheb_pts(0:torder), STAT=err)
+      ALLOCATE(cheb_pts(0:torder), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
@@ -121,18 +115,6 @@
 
       DO i = 0, torder
         cheb_pts(i) = COS(i * pi / torder);
-      END DO
-
-! initialize arrays for Taylor sums and coeffs
-      DO i = 0, torder
-         cf(i) = REAL(i,KIND=r8) + 1.0_r8
-      END DO
-
-      DO i = 1, torderlim
-         t1 = 1.0_r8 / REAL(i,KIND=r8)
-         cf1(i) = t1;
-         cf2(i) = 1.0_r8 - 0.5_r8 * t1
-         cf3(i) = 1.0_r8 - t1
       END DO
 
 ! find bounds of Cartesian box enclosing the particles
@@ -570,7 +552,7 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
@@ -643,7 +625,7 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
@@ -715,7 +697,7 @@
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim**3)) THEN
+         (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
@@ -772,7 +754,7 @@
         INTEGER :: xlind, ylind, zlind, xhind, yhind, zhind, yzhind
         INTEGER :: i,nn,j,k,k1,k2,k3,kk
 
-        REAL(KIND=r8), DIMENSION(0:torder) :: dj, w1i, w2j, w3k, a1i, a2j, a3k
+        REAL(KIND=r8), DIMENSION(0:torder) :: dj, w1i, a1i, a2j, a3k
         REAL(KIND=r8) :: sumA1, sumA2, sumA3, xx, yy, zz, Dd
         INTEGER :: a1exactind, a2exactind, a3exactind
 
@@ -790,9 +772,6 @@
              END IF
           END DO
 
-          w2j = w1i
-          w3k = w1i
-
           xl=ap%xyz_min(1)
           yl=ap%xyz_min(2)
           zl=ap%xyz_min(3)
@@ -807,7 +786,9 @@
 
           yzhind=xyz_dimglob(2)*xyz_dimglob(3)
           DO i=xlind,xhind
+             xx=xl+(i-xlind)*xyz_ddglob(1)
              DO j=ylind,yhind
+                yy=yl+(j-ylind)*xyz_ddglob(2)
                 DO k=zlind,zhind
 
                    sumA1 = 0.0_r8
@@ -822,16 +803,13 @@
                    kk = 0
 
                    nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
-
-                   xx=xl+(i-xlind)*xyz_ddglob(1)
-                   yy=yl+(j-ylind)*xyz_ddglob(2)
                    zz=zl+(k-zlind)*xyz_ddglob(3)
 
                    DO k1 = 0, torder
 
                       a1i(k1) = w1i(k1) / (xx - ap%tinterp(1,k1))
-                      a2j(k1) = w2j(k1) / (yy - ap%tinterp(2,k1))
-                      a3k(k1) = w3k(k1) / (zz - ap%tinterp(3,k1))
+                      a2j(k1) = w1i(k1) / (yy - ap%tinterp(2,k1))
+                      a3k(k1) = w1i(k1) / (zz - ap%tinterp(3,k1))
 
                       sumA1 = sumA1 + a1i(k1)
                       sumA2 = sumA2 + a2j(k1)
@@ -902,23 +880,11 @@
       IMPLICIT NONE
 
       TYPE(tnode),POINTER :: p
-
       INTEGER :: i
-!      REAL(KIND=r8) :: x0, x1, y0, y1, z0, z1
-!
-!      x0 = p%xyz_min(1)
-!      x1 = p%xyz_max(1)
-!      y0 = p%xyz_min(2)
-!      y1 = p%xyz_max(2)
-!      z0 = p%xyz_min(3)
-!      z1 = p%xyz_max(3)
 
       DO i = 0, torder
-!         p%tinterp(1,i) = x0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (x1 - x0)
-!         p%tinterp(2,i) = y0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (y1 - y0)
-!         p%tinterp(3,i) = z0 + (cheb_pts(i) + 1.0_r8)/2.0_r8 * (z1 - z0)
-         p%tinterp(:,i) = (p%xyz_min) + (cheb_pts(i) + 1.0_r8)/2.0_r8 &
-                        * (p%xyz_max - p%xyz_min)
+          p%tinterp(:,i) = (p%xyz_min) + (cheb_pts(i) + 1.0_r8)/2.0_r8 &
+                         * (p%xyz_max - p%xyz_min)
       END DO
 
       END SUBROUTINE COMP_INTERP
@@ -945,12 +911,6 @@
       kap_eta_2 = kappa * eta / 2_r8
 
       DO k1=0,torder
-!         dxt = tarpos(1) - p%tx(i,1)
-!         dyt = tarpos(2) - p%ty(i,2)
-!         dzt = tarpos(3) - p%tz(i,3)
-!         temp_i(i,1) = dxt**2
-!         temp_j(i,2) = dyt**2
-!         temp_k(i,3) = dzt**2
           tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
       END DO
 
@@ -994,12 +954,6 @@
       kk=0
 
       DO k1=0,torder
-!         dxt = tarpos(1) - p%tx(i,1)
-!         dyt = tarpos(2) - p%ty(i,2)
-!         dzt = tarpos(3) - p%tz(i,3)
-!         temp_i(i,1) = dxt**2
-!         temp_j(i,2) = dyt**2
-!         temp_k(i,3) = dzt**2
           tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
       END DO
 
@@ -1038,12 +992,6 @@
       kk=0
 
       DO k1=0,torder
-!         dxt = tarpos(1) - p%tx(i,1)
-!         dyt = tarpos(2) - p%ty(i,2)
-!         dzt = tarpos(3) - p%tz(i,3)
-!         temp_i(i,1) = dxt**2
-!         temp_j(i,2) = dyt**2
-!         temp_k(i,3) = dzt**2
           tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
       END DO
 
@@ -1249,12 +1197,6 @@
 ! local variables
   
       INTEGER :: err
-
-      DEALLOCATE(cf,cf1,cf2,cf3,a,b, STAT=err)
-      IF (err .NE. 0) THEN
-         WRITE(6,*) 'Error deallocating Taylor variables! '
-         STOP
-      END IF
 
       CALL REMOVE_NODE(p)
       DEALLOCATE(p, STAT=err)
