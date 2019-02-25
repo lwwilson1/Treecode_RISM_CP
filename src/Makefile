@@ -4,6 +4,8 @@ TARGET = treecp
 AOFILES = exact_coul.o 
 ATARGET = direct
 
+AOFILES = exact_coul_grid.o 
+ATARGET = direct-grid
 
 CC = gfortran
 FFLAGS = -Wall -Wextra -O3
@@ -22,6 +24,9 @@ tree_cp.o: tree_cp.f90
 	$(CC) $(FFLAGS) -c $<
 
 exact_coul.o: exact_coul.f90
+	$(CC) $(FFLAGS) -c $<
+
+exact_coul_grid.o: exact_coul_grid.f90
 	$(CC) $(FFLAGS) -c $<
 
 treecode_procedures.mod: tree_cp.f90 tree_cp.o

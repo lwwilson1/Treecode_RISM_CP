@@ -27,7 +27,7 @@
 
 ! r8 is 8-byte (double precision) real
 
-      INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(12)
+      INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(15,307)
       REAL(KIND=r8),PARAMETER :: pi = 4_r8*ATAN(1.D0)
 
 ! global variables for taylor expansions
