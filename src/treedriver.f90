@@ -219,13 +219,13 @@
       WRITE(6,*) ' '
          
       write(85,15) numparsS, ", ", numparsT, ", ", maxparnodeT, ", ", order, ", ", theta, &
-                   ", ", ABS((tpeng-dpeng)/dpeng), ", ", reln2err, ", ", timedirect, &
-                   ", ", timetree 
+                   ", ", ABS((tpeng-dpeng)/dpeng), ", ", relinferr, ", ", reln2err, &
+                   ", ", timedirect, ", ", timetree 
 
       CLOSE(unit=85)
 
  13   FORMAT(E24.16)
- 15   FORMAT(I8,A,I8,A,I4,A,I3,A,F12.8,A,E24.16,A,E24.16,A,F24.16,A,F24.16) 
+ 15   FORMAT(I8,A,I8,A,I4,A,I3,A,F12.8,A,E24.16,A,E24.16,A,E24.16,A,F24.16,A,F24.16) 
  17   FORMAT(14X,E24.16)
 100   FORMAT(A7, A5, A5, A7, A6, F8.3, F8.3, F8.3, F8.4, A8, A9) 
 
