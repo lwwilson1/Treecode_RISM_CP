@@ -905,10 +905,9 @@
 
       INTEGER :: k1,k2,k3,kk
       REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
-      REAL(KIND=r8) :: rad, kap_eta_2, kap_rad, rad_eta
+      REAL(KIND=r8) :: rad
 
       kk=0
-      kap_eta_2 = kappa * eta / 2_r8
 
       DO k1=0,torder
           tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
@@ -920,12 +919,7 @@
                kk=kk+1
                rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
 
-               kap_rad = kappa * rad
-               rad_eta = rad / eta
-
-               p%ms(kk) = p%ms(kk) - tarposq / rad &
-                                   * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
-                                   -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
+               p%ms(kk) = p%ms(kk) - tarposq / rad * exp(-kappa * rad) * 2.0_r8
            END DO
          END DO
       END DO
