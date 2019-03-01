@@ -1349,7 +1349,7 @@
          DO j=2,torderlim-2-k
             j1=j-1; j2=j-2
             DO i=2,torderlim-k-j
-                i1=i-2; i2=i-2;
+                i1=i-1; i2=i-2;
 
 !               a(i,j,k)=fac*(ddx*cf2(i)*a(i-1,j,k)+ddy*a(i,j1,k) &
 !                           +ddz*a(i,j,k1)-cf3(i)*a(i-2,j,k) &
