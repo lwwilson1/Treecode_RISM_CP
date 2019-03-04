@@ -30,6 +30,8 @@
       INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(15,307)
       REAL(KIND=r8),PARAMETER :: pi = 4_r8*ATAN(1.D0)
 
+      REAL(KIND=r8) :: kappa_eta_2, correction_coeff
+
 ! global variables for taylor expansions
 
       INTEGER :: torder, torderlim
@@ -400,10 +402,15 @@
       REAL(KIND=r8),DIMENSION(numparsS),INTENT(IN) :: xS,yS,zS,qS
       REAL(KIND=r8),INTENT(IN) :: kappa, eta, eps
       REAL(KIND=r8),DIMENSION(numparsT),INTENT(INOUT) :: EnP
- 
+
 ! local variables
 
       INTEGER :: i,j
+
+! set global coefficient variables
+
+      kappa_eta_2 = kappa * eta / 2.0_r8
+      correction_coeff = - 2.0_r8 * eta / sqrt(pi) * exp(-(kappa*eta)**2 / 4.0_r8)
 
       EnP=0.0_r8
       DO i=1,numparsS
@@ -905,7 +912,7 @@
 
       INTEGER :: k1,k2,k3,kk
       REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
-      REAL(KIND=r8) :: rad
+      REAL(KIND=r8) :: rad2, rad
 
       kk=0
 
@@ -917,9 +924,11 @@
          DO k2=0,torder
             DO k3=0,torder
                kk=kk+1
-               rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
+               rad2 = tempt(1,k1) + tempt(2,k2) + tempt(3,k3)
+               rad = SQRT(rad2)
 
-               p%ms(kk) = p%ms(kk) - tarposq / rad * exp(-kappa * rad) * 2.0_r8
+               p%ms(kk) = p%ms(kk) - tarposq * (2.0_r8  / rad  * exp(-kappa * rad) &
+                                     + correction_coeff / rad2 * exp(-rad2 / eta)) 
            END DO
          END DO
       END DO
