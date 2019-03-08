@@ -34,7 +34,7 @@
 
       INTEGER :: torder, torderlim, torderflat
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2,cf3
-      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b
+      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b, a2, b2
       
 ! global variables used when computing potential/force
 
@@ -49,6 +49,10 @@
 ! global variables for tree level tracking
 
       INTEGER :: maxlevel, minlevel
+
+! global variables for taylor coefficients
+
+      REAL(KIND=r8) :: correction_coeff
 
 ! node pointer and node type declarations
 
@@ -108,7 +112,9 @@
 
       ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), &
                a(-2:torderlim, -2:torderlim, -2:torderlim), &
-               b(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
+               b(-2:torderlim, -2:torderlim, -2:torderlim), &
+               a2(-2:torderlim, -2:torderlim, -2:torderlim), &
+               b2(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
@@ -121,9 +127,9 @@
 
       DO i = 1, torderlim
          t1 = 1.0_r8 / REAL(i,KIND=r8)
-         cf1(i) = t1;
-         cf2(i) = 1.0_r8 - 0.5_r8 * t1
-         cf3(i) = 1.0_r8 - t1
+         cf1(i) = t1; ! 1/||k||
+         cf2(i) = 1.0_r8 - 0.5_r8 * t1 ! 1 - 2/||k||
+         cf3(i) = 1.0_r8 - t1 ! 1 - 1/||k||
       END DO
 
 ! find bounds of Cartesian box enclosing the particles
@@ -563,7 +569,7 @@
       IF ((p%sqradius .LT. distsq*thetasq) .AND. &
          (p%sqradius .NE. 0.0_r8)) THEN
 
-         CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa)
+         CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa, eta)
 
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(torderflat),STAT=err)
@@ -833,7 +839,7 @@
 !!!!!!!!!!!!!!!
 
 
-      SUBROUTINE COMP_TCOEFF_TCF(dx,dy,dz,kappa)
+      SUBROUTINE COMP_TCOEFF_TCF(dx,dy,dz,kappa,eta)
       IMPLICIT NONE
 !
 ! COMP_TCOEFF computes the Taylor coefficients of the potential
@@ -841,12 +847,12 @@
 ! midpoint of the node P.  TARPOS and TORDERLIM are globally defined.
 !
       REAL(KIND=r8),INTENT(IN) :: dx,dy,dz
-      REAL(KIND=r8),INTENT(IN)  :: kappa
+      REAL(KIND=r8),INTENT(IN)  :: kappa,eta
 
 ! local varaibles
 
-      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
-      REAL(KIND=r8) :: kappax,kappay,kappaz
+      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac,dist2
+      REAL(KIND=r8) :: kappax,kappay,kappaz,two_eta,correction_coeff
       INTEGER :: i,j,k,i1,i2,j1,j2,k1,k2
 
 ! setup variables
@@ -855,18 +861,24 @@
       ddy = 2.0_r8*dy
       ddz = 2.0_r8*dz
 
+      two_eta = 2.0_r8/eta
+      correction_coeff = 2.0_r8*eta/sqrt(pi)*exp(-(kappa*eta)**2/4.0_r8)
+
       kappax = kappa*dx
       kappay = kappa*dy
       kappaz = kappa*dz
 
-      dist = dx*dx + dy*dy + dz*dz
-      fac = 1.0_r8 / dist
-      dist = SQRT(dist)
+      dist2 = dx*dx + dy*dy + dz*dz
+      fac = 1.0_r8 / dist2
+      dist = SQRT(dist2)
 
 ! 0th coeff or function val
 
       b(0,0,0)=-2_r8*EXP(-kappa*dist)
       a(0,0,0)=b(0,0,0)/dist
+
+      b2(0,0,0)=correction_coeff*EXP(-dist2/eta)
+      a2(0,0,0)=b2(0,0,0)/dist2
 
 ! 2 indices are 0
 
@@ -877,6 +889,15 @@
       a(1,0,0)=fac*dx*(a(0,0,0)+kappa*b(0,0,0))
       a(0,1,0)=fac*dy*(a(0,0,0)+kappa*b(0,0,0))
       a(0,0,1)=fac*dz*(a(0,0,0)+kappa*b(0,0,0))
+
+      b2(1,0,0)=two_eta*dx*b2(0,0,0)
+      b2(0,1,0)=two_eta*dy*b2(0,0,0)
+      b2(0,0,1)=two_eta*dz*b2(0,0,0)
+
+      a2(1,0,0)=fac*(ddx*a2(0,0,0)+b2(1,0,0))
+      a2(0,1,0)=fac*(ddy*a2(0,0,0)+b2(0,1,0))
+      a2(0,0,1)=fac*(ddz*a2(0,0,0)+b2(0,0,1))
+
 
 
       DO i=2,torderlim
@@ -892,6 +913,14 @@
                   cf1(i)*kappa*(dy*b(0,i1,0)-b(0,i2,0)))
          a(0,0,i)=fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2)+&
                   cf1(i)*kappa*(dz*b(0,0,i1)-b(0,0,i2)))
+
+         b2(i,0,0)=cf1(i)*two_eta*(dx*b2(i1,0,0)-b2(i2,0,0))
+         b2(0,i,0)=cf1(i)*two_eta*(dy*b2(0,i1,0)-b2(0,i2,0))
+         b2(0,0,i)=cf1(i)*two_eta*(dz*b2(0,0,i1)-b2(0,0,i2))
+
+         a2(i,0,0)=fac*(b2(i,0,0)+ddx*a2(i1,0,0)-a2(i2,0,0))
+         a2(0,i,0)=fac*(b2(0,i,0)+ddx*a2(0,i1,0)-a2(0,i2,0))
+         a2(0,0,i)=fac*(b2(0,0,i)+ddx*a2(0,0,i1)-a2(0,0,i2))
       END DO
 
 ! 1 index 0, 1 index 1, other >=1
@@ -903,6 +932,14 @@
       a(1,1,0)=fac*(dx*a(0,1,0)+ddy*a(1,0,0)+kappax*b(0,1,0))
       a(1,0,1)=fac*(dx*a(0,0,1)+ddz*a(1,0,0)+kappax*b(0,0,1))
       a(0,1,1)=fac*(dy*a(0,0,1)+ddz*a(0,1,0)+kappay*b(0,0,1))
+
+      b2(1,1,0)=two_eta*dx*b2(0,1,0)
+      b2(1,0,1)=two_eta*dx*b2(0,0,1)
+      b2(0,1,1)=two_eta*dy*b2(0,0,1)
+
+      a2(1,1,0)=fac*(b2(1,1,0)+4.0_r8*dx*a2(0,1,0)) 
+      a2(1,0,1)=fac*(b2(1,0,1)+4.0_r8*dx*a2(0,0,1))
+      a2(0,1,1)=fac*(b2(1,0,1)+4.0_r8*dy*a2(0,0,1))
 
       DO i=2,torderlim-1
          i1=i-1; i2=i-2;
@@ -926,6 +963,20 @@
                   kappay*b(i,0,0))
          a(i,0,1)=fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1)+&
                   kappaz*b(i,0,0))
+
+         b2(1,0,i)=two_eta*dx*b2(0,0,i)
+         b2(0,1,i)=two_eta*dy*b2(0,0,i)
+         b2(0,i,1)=two_eta*dz*b2(0,i,0)
+         b2(1,i,0)=two_eta*dx*b2(0,i,0)
+         b2(i,1,0)=two_eta*dy*b2(i,0,0)
+         b2(i,0,1)=two_eta*dz*b2(i,0,0)
+
+         a2(1,0,i)=fac*(b2(1,0,i)+ddx*a2(0,0,i)+ddz*a2(1,0,i1)-a2(1,0,i2))
+         a2(0,1,i)=fac*(b2(1,0,i)+ddy*a2(0,0,i)+ddz*a2(0,1,i1)-a2(0,1,i2))
+         a2(0,i,1)=fac*(b2(0,i,1)+ddz*a2(0,i,0)+ddy*a2(0,i1,1)-a2(0,i2,1))
+         a2(1,i,0)=fac*(b2(1,i,0)+ddx*a2(0,i,0)+ddy*a2(1,i1,0)-a2(1,i2,0))
+         a2(i,1,0)=fac*(b2(i,1,0)+ddy*a2(i,0,0)+ddx*a2(i1,1,0)-a2(i2,1,0))
+         a2(i,0,1)=fac*(b2(i,0,1)+ddz*a2(i,0,0)+ddx*a2(i1,0,1)-a2(i2,1,0))
       END DO
 
 ! 1 index 0, others >= 2
@@ -949,6 +1000,25 @@
             a(0,i,j)=fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1)&
                      -cf3(i)*a(0,i2,j)-a(0,i,j2)+&
                      cf1(i)*kappa*(dy*b(0,i1,j)-b(0,i2,j)))
+
+            !even
+            !b2(i,j,0)=cf1(i+j)*2.0_r8*kappa*(dx*b2(i1,j,0)+dy*b2(i,j1,0) &
+            !                                   -b2(i2,j,0)   -b2(i,j2,0))
+            !b2(i,0,j)=cf1(i+j)*2.0_r8*kappa*(dx*b2(i1,0,j)+dz*b2(i,0,j1) &
+            !                                   -b2(i2,0,j)   -b2(i,0,j2))
+            !b2(0,i,j)=cf1(i+j)*2.0_r8*kappa*(dy*b2(0,i1,j)+dz*b2(0,i,j1) &
+            !                                   -b2(0,i2,j)   -b2(0,i,j2))
+
+            !uneven
+            b2(i,j,0)=cf1(i)*two_eta*(dx*b2(i1,j,0)-b2(i2,j,0))
+            b2(i,0,j)=cf1(i)*two_eta*(dx*b2(i1,0,j)-b2(i2,0,j))
+            b2(0,i,j)=cf1(i)*two_eta*(dy*b2(0,i1,j)-b2(0,i2,j))
+
+
+            a2(i,j,0)=fac*(b2(i,j,0)+ddx*a2(i1,j,0)+ddy*a2(i,j1,0)-a2(i2,j,0)-a2(i,j2,0))
+            a2(i,0,j)=fac*(b2(i,0,j)+ddx*a2(i1,0,j)+ddz*a2(i,0,j1)-a2(i2,0,j)-a2(i,0,j2))
+            a2(0,i,j)=fac*(b2(0,i,j)+ddy*a2(0,i1,j)+ddz*a2(0,i,j1)-a2(0,i2,j)-a2(0,i,j2))
+
          END DO
       END DO
 
@@ -959,6 +1029,9 @@
       b(1,1,1)=kappax*a(0,1,1)
       a(1,1,1)=fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
                kappax*b(0,1,1))
+
+      b2(1,1,1)=kappa*ddx*b2(0,1,1)
+      a2(1,1,1)=fac*(b2(1,1,1)+6.0_r8*dx*a2(0,1,1))
 
       DO i=2,torderlim-2
          i1=i-1; i2=i-2;
@@ -973,6 +1046,20 @@
                  -a(1,i2,1)+kappax*b(0,i,1))
          a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0)&
                  -a(i2,1,1)+kappay*b(i,0,1))
+
+         !even
+         !b2(1,1,i)=2*kappa*cf1(i+2)*(dz*b2(1,1,i1)+dx*b2(0,1,i)+dy*b2(0,i,1)-b2(1,1,i2))
+         !b2(1,i,1)=2*kappa*cf1(i+2)*(dy*b2(1,i1,1)+dx*b2(0,i,1)+dz*b2(1,i,0)-b2(1,i2,1))
+         !b2(i,1,1)=2*kappa*cf1(i+2)*(dx*b2(i1,1,1)+dy*b2(i,0,1)+dz*b2(i,1,0)-b2(i2,1,1))
+
+         !uneven
+         b2(1,1,i)=two_eta*dx*b2(0,1,i)
+         b2(1,i,1)=two_eta*dx*b2(0,i,1)
+         b2(i,1,1)=two_eta*dy*b2(i,0,1)
+
+         a2(1,1,i)=fac*(b2(1,1,i)+ddz*a2(1,1,i1)+ddx*a2(0,1,i)+ddy*a2(1,0,i)-a2(1,1,i2))
+         a2(1,i,1)=fac*(b2(1,i,1)+ddy*a2(1,i1,1)+ddx*a2(0,i,1)+ddz*a2(1,i,0)-a2(1,i2,1))
+         a2(i,1,1)=fac*(b2(i,1,1)+ddx*a2(i1,1,1)+ddy*a2(i,0,1)+ddy*a2(i,1,0)-a2(i2,1,1))
       END DO
 
 ! 1 index 1, others >=2
@@ -993,6 +1080,20 @@
                     -a(i2,1,j)-a(i,1,j2)+kappay*b(i,0,j))
             a(i,j,1)=fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1)&
                     -a(i2,j,1)-a(i,j2,1)+kappaz*b(i,j,0))
+
+            b2(1,i,j)=two_eta*dx*b2(0,i,j)
+            b2(i,1,j)=two_eta*dy*b2(i,0,j)
+            b2(i,j,1)=two_eta*dz*b2(i,j,0)
+
+            a2(1,i,j) = fac * (b2(1,i,j) &
+                            + ddx*a2(0,i,j) + ddy*a2(1,i1,j) + ddz*a2(1,i,j1) &
+                                - a2(1,i2,j)    - a2(1,i,j2))
+            a2(i,1,j) = fac * (b2(i,1,j) &
+                            + ddx*a2(i1,1,j) + ddy*a2(i,0,j) + ddz*a2(i,1,j1) &
+                                - a2(i2,1,j)     - a2(i,1,j2))
+            a2(i,j,1) = fac * (b2(i,j,1) &
+                            + ddx*a2(i1,j,1) + ddy*a2(i,j1,1) + ddz*a2(i,j,0) &
+                                - a2(i2,j,1)     - a2(i,j2,1))
 
          END DO
       END DO
@@ -1026,9 +1127,20 @@
                                        * (dx*b(i1,j,k) +  dy*b(i,j1,k) +  dz*b(i,j,k1) &
                                            - b(i2,j,k)     - b(i,j2,k)     - b(i,j,k2)))
 
+               b2(i,j,k) = cf1(i+j+k) * two_eta &
+                         * (dx*b2(i1,j,k) + dy*b2(i,j1,k) + dz*b2(i,j,k1) &
+                             - b2(i2,j,k)    - b2(i,j2,k)    - b2(i,j,k2))
+
+               a2(i,j,k) = fac * (b2(i,j,k) &
+                            + ddx*a2(i1,j,k) + ddy*a2(i,j1,k) + ddz*a2(i,j,k1) &
+                                - a2(i2,j,k)     - a2(i,j2,k)     - a2(i,j,k2))
+
             END DO
          END DO
       END DO
+
+      !Adding coefficients
+      a = a + a2
 
       RETURN
       END SUBROUTINE COMP_TCOEFF_TCF
