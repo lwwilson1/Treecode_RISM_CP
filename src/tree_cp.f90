@@ -762,10 +762,15 @@
         INTEGER :: i,nn,j,k,k1,k2,k3,kk
 
         REAL(KIND=r8), DIMENSION(0:torder) :: dj, wx, wy, wz
-        REAL(KIND=r8), DIMENSION(0:torder) :: a1i, a2j, a3k, b1i, b2j, b3k 
-        REAL(KIND=r8), DIMENSION(torder3) :: sum1, sum2, sum3, sum4 
-        REAL(KIND=r8), DIMENSION(torder3) :: sum5, sum6, sum7, sum8 
-        REAL(KIND=r8) :: sumA1, sumA2, sumA3, xx, yy, zz, Dd
+        REAL(KIND=r8), DIMENSION(0:torder,ap%xyz_lowindex(1):ap%xyz_highindex(1)) :: a1i, b1i
+        REAL(KIND=r8), DIMENSION(0:torder,ap%xyz_lowindex(2):ap%xyz_highindex(2)) :: a2j, b2j
+        REAL(KIND=r8), DIMENSION(0:torder,ap%xyz_lowindex(3):ap%xyz_highindex(3)) :: a3k, b3k
+        REAL(KIND=r8), DIMENSION(ap%xyz_lowindex(1):ap%xyz_highindex(1)) :: sumA1
+        REAL(KIND=r8), DIMENSION(ap%xyz_lowindex(2):ap%xyz_highindex(2)) :: sumA2
+        REAL(KIND=r8), DIMENSION(ap%xyz_lowindex(3):ap%xyz_highindex(3)) :: sumA3
+        REAL(KIND=r8), DIMENSION(torder3) :: sum1, sum2, sum3, sum4
+        REAL(KIND=r8), DIMENSION(torder3) :: sum5, sum6, sum7, sum8
+        REAL(KIND=r8) :: xx, yy, zz, Dd
         INTEGER :: a1exactind, a2exactind, a3exactind
 
         IF (ap%exist_ms==1) THEN
@@ -801,102 +806,111 @@
              wz(k1) = -4.0 * cheb_wts(k1) / (ap%xyz_max(3) - ap%xyz_min(3))
           END DO
 
-          yzhind=xyz_dimglob(2)*xyz_dimglob(3)
-          DO i=xlind,xhind
-             xx=xl+(i-xlind)*xyz_ddglob(1)
-             DO j=ylind,yhind
-                yy=yl+(j-ylind)*xyz_ddglob(2)
-                DO k=zlind,zhind
+          DO i = xlind, xhind
+             xx = xl + (i-xlind)*xyz_ddglob(1)
+             sumA1(i) = 0.0_r8
+             a1exactind = -1
 
-                   sumA1 = 0.0_r8
-                   sumA2 = 0.0_r8
-                   sumA3 = 0.0_r8
+             DO k1 = 0, torder
+                dx = xx - ap%tinterp(1,k1)
+                a1i(k1,i) = wx(k1)/dx + dj(k1)/(dx*dx)
+                b1i(k1,i) = dj(k1)/dx
+                sumA1(i) = sumA1(i) + a1i(k1,i)
 
-                   a1exactind = -1
-                   a2exactind = -1
-                   a3exactind = -1
+                IF (ABS(xx - ap%tinterp(1,k1)) < TINY(1.0_r8)) THEN
+                   a1exactind = k1
+                END IF
+             END DO
+
+             IF (a1exactind > -1) THEN
+                sumA1(i) = 1.0_r8
+                a1i(:,i) = 0.0_r8
+                b1i(:,i) = 0.0_r8
+                a1i(a1exactind,i) = 1.0_r8
+             END IF
+          END DO
+
+          DO j = ylind, yhind
+             yy = yl + (j-ylind)*xyz_ddglob(2)
+             sumA2(j) = 0.0_r8
+             a2exactind = -1
+
+             DO k1 = 0, torder
+                dy = yy - ap%tinterp(2,k1)
+                a2j(k1,j) = wy(k1)/dy + dj(k1)/(dy*dy)
+                b2j(k1,j) = dj(k1)/dy
+                sumA2(j) = sumA2(j) + a2j(k1,j)
+
+                IF (ABS(yy - ap%tinterp(2,k1)) < TINY(1.0_r8)) THEN
+                   a2exactind = k1
+                END IF
+             END DO
+
+             IF (a2exactind > -1) THEN
+                sumA2(j) = 1.0_r8
+                a2j(:,j) = 0.0_r8
+                b2j(:,j) = 0.0_r8
+                a2j(a2exactind,j) = 1.0_r8
+             END IF
+          END DO
+
+          DO k = zlind, zhind
+             zz = zl + (k-zlind)*xyz_ddglob(3)
+             sumA3(k) = 0.0_r8
+             a3exactind = -1
+
+             DO k1 = 0, torder
+                dz = zz - ap%tinterp(3,k1)
+                a3k(k1,k) = wz(k1)/dz + dj(k1)/(dz*dz)
+                b3k(k1,k) = dj(k1)/dz
+                sumA3(k) = sumA3(k) + a3k(k1,k)
+
+                IF (ABS(zz - ap%tinterp(3,k1)) < TINY(1.0_r8)) THEN
+                   a3exactind = k1
+                END IF
+             END DO
+
+             IF (a3exactind > -1) THEN
+                sumA3(k) = 1.0_r8
+                a3k(:,k) = 0.0_r8
+                b3k(:,k) = 0.0_r8
+                a3k(a3exactind,k) = 1.0_r8
+             END IF
+          END DO
+
+
+          yzhind = xyz_dimglob(2) * xyz_dimglob(3)
+          DO i = xlind, xhind
+             DO j = ylind, yhind
+                DO k = zlind, zhind
 
                    peng = 0.0_r8
                    kk = 0
 
-                   nn=(i*yzhind)+(j*xyz_dimglob(3))+k+1
-                   zz=zl+(k-zlind)*xyz_ddglob(3)
-
-                   DO k1 = 0, torder
-                   
-                      dx = xx - ap%tinterp(1,k1)
-                      dy = yy - ap%tinterp(2,k1)
-                      dz = zz - ap%tinterp(3,k1)
-
-                      a1i(k1) = wx(k1)/dx + dj(k1)/(dx*dx)
-                      a2j(k1) = wy(k1)/dy + dj(k1)/(dy*dy)
-                      a3k(k1) = wz(k1)/dz + dj(k1)/(dz*dz)
-
-                      b1i(k1) = dj(k1)/dx
-                      b2j(k1) = dj(k1)/dy
-                      b3k(k1) = dj(k1)/dz
-
-                      sumA1 = sumA1 + a1i(k1)
-                      sumA2 = sumA2 + a2j(k1)
-                      sumA3 = sumA3 + a3k(k1)
-
-                      IF (ABS(xx - ap%tinterp(1,k1)) < TINY(1.0_r8)) THEN
-                         a1exactind = k1
-                      END IF
-
-                      IF (ABS(yy - ap%tinterp(2,k1)) < TINY(1.0_r8)) THEN
-                         a2exactind = k1
-                      END IF
-
-                      IF (ABS(zz - ap%tinterp(3,k1)) < TINY(1.0_r8)) THEN
-                         a3exactind = k1
-                      END IF
-                   END DO
-
-                   IF (a1exactind > -1) THEN
-                      sumA1 = 1.0_r8
-                      a1i = 0.0_r8
-                      b1i = 0.0_r8
-                      a1i(a1exactind) = 1.0_r8
-                   END IF
-
-                   IF (a2exactind > -1) THEN
-                      sumA2 = 1.0_r8
-                      a2j = 0.0_r8
-                      b2j = 0.0_r8
-                      a2j(a2exactind) = 1.0_r8
-                   END IF
-
-                   IF (a3exactind > -1) THEN
-                      sumA3 = 1.0_r8
-                      a3k = 0.0_r8
-                      b3k = 0.0_r8
-                      a3k(a3exactind) = 1.0_r8
-                   END IF
-
-                   Dd = 1.0_r8 / (sumA1 * sumA2 * sumA3);
+                   nn = (i*yzhind) + (j*xyz_dimglob(3)) + k + 1
+                   Dd = 1.0_r8 / (sumA1(i) * sumA2(j) * sumA3(k));
 
                    DO k1 = 0, torder
                       DO k2 = 0, torder
                          DO k3 = 0, torder
                             kk = kk + 1
-                            temp11 = a1i(k1) * a2j(k2) * Dd
-                            temp21 = b1i(k1) * a2j(k2) * Dd
-                            temp12 = a1i(k1) * b2j(k2) * Dd
-                            temp22 = b1i(k1) * b2j(k2) * Dd
-                            peng = peng + ap%ms(1,kk) * temp11 * a3k(k3) &
-                                        + ap%ms(2,kk) * temp21 * a3k(k3) &
-                                        + ap%ms(3,kk) * temp12 * a3k(k3) &
-                                        + ap%ms(4,kk) * temp11 * b3k(k3) &
-                                        + ap%ms(5,kk) * temp22 * a3k(k3) &
-                                        + ap%ms(6,kk) * temp12 * b3k(k3) &
-                                        + ap%ms(7,kk) * temp21 * b3k(k3) &
-                                        + ap%ms(8,kk) * temp22 * b3k(k3)
+                            temp11 = a1i(k1,i) * a2j(k2,j) * Dd
+                            temp21 = b1i(k1,i) * a2j(k2,j) * Dd
+                            temp12 = a1i(k1,i) * b2j(k2,j) * Dd
+                            temp22 = b1i(k1,i) * b2j(k2,j) * Dd
+                            peng = peng + ap%ms(1,kk) * temp11 * a3k(k3,k) &
+                                        + ap%ms(2,kk) * temp21 * a3k(k3,k) &
+                                        + ap%ms(3,kk) * temp12 * a3k(k3,k) &
+                                        + ap%ms(4,kk) * temp11 * b3k(k3,k) &
+                                        + ap%ms(5,kk) * temp22 * a3k(k3,k) &
+                                        + ap%ms(6,kk) * temp12 * b3k(k3,k) &
+                                        + ap%ms(7,kk) * temp21 * b3k(k3,k) &
+                                        + ap%ms(8,kk) * temp22 * b3k(k3,k)
                          END DO
                       END DO
                    END DO
 
-                   EnP(nn)=EnP(nn)+peng
+                   EnP(nn) = EnP(nn) + peng
 
                 END DO
              END DO
