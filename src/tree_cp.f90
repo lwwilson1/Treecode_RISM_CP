@@ -32,10 +32,11 @@
 
 ! global variables for taylor expansions
 
-      INTEGER :: torder, torderlim
+      INTEGER :: torder, torderlim, torder3
 
 ! global array for Chebyshev points.
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cheb_pts
+      REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cheb_wts
       
 ! global variables used when computing potential/force
 
@@ -62,7 +63,7 @@
 
            REAL(KIND=r8)    :: radius,sqradius,aspect
            INTEGER          :: level,num_children,exist_ms
-           REAL(KIND=r8),DIMENSION(:),POINTER :: ms
+           REAL(KIND=r8),DIMENSION(:,:),POINTER :: ms
            REAL(KIND=r8),DIMENSION(:,:),POINTER :: tinterp
            TYPE(tnode_pointer), DIMENSION(8) :: child
 
@@ -91,12 +92,13 @@
 ! local variables
 
       INTEGER :: err,i
-      REAL(KIND=r8) :: t1
+      REAL(KIND=r8) :: t1, xx
 
 ! global integers and reals:  TORDER, TORDERLIM and THETASQ
 
       torder=order
       torderlim=torder+1
+      torder3=torderlim*torderlim*torderlim
       thetasq=theta*theta
 
       xyz_dimglob = xyzdim
@@ -107,15 +109,20 @@
 
 ! allocate global Taylor expansion variables
 
-      ALLOCATE(cheb_pts(0:torder), STAT=err)
+      ALLOCATE(cheb_pts(0:torder), cheb_wts(0:torder), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
       END IF
 
       DO i = 0, torder
-        cheb_pts(i) = COS(i * pi / torder);
+         xx = i * pi / torder
+         cheb_pts(i) = COS(xx)
+         cheb_wts(i) = -COS(xx) / (2.0_r8 * SIN(xx) * SIN(xx))
       END DO
+
+      cheb_wts(0) = 0.25_r8 * (torder * torder / 3.0_r8 + 1.0_r8/6.0_r8)
+      cheb_wts(torder) = -cheb_wts(0)
 
 ! find bounds of Cartesian box enclosing the particles
 
@@ -555,7 +562,7 @@
          (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%ms(8,torderlim*torderlim*torderlim),STAT=err)
              ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
@@ -628,7 +635,7 @@
          (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%ms(8,torderlim*torderlim*torderlim),STAT=err)
              ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
@@ -700,7 +707,7 @@
          (p%sqradius .NE. 0.0_r8) .AND. (p%numpar > torderlim*torderlim*torderlim)) THEN
 
          IF (p%exist_ms .EQ. 0) THEN
-             ALLOCATE(p%ms(torderlim*torderlim*torderlim),STAT=err)
+             ALLOCATE(p%ms(8,torderlim*torderlim*torderlim),STAT=err)
              ALLOCATE(p%tinterp(3,0:torder),STAT=err)
              IF (err .NE. 0) THEN
                 WRITE(6,*) 'Error allocating node moments! '
@@ -750,27 +757,18 @@
 
 ! local variables
 
-        REAL(KIND=r8) :: peng,xl,yl,zl
+        REAL(KIND=r8) :: peng,xl,yl,zl,dx,dy,dz,temp11,temp12,temp21,temp22
         INTEGER :: xlind, ylind, zlind, xhind, yhind, zhind, yzhind
         INTEGER :: i,nn,j,k,k1,k2,k3,kk
 
-        REAL(KIND=r8), DIMENSION(0:torder) :: dj, w1i, a1i, a2j, a3k
+        REAL(KIND=r8), DIMENSION(0:torder) :: dj, wx, wy, wz
+        REAL(KIND=r8), DIMENSION(0:torder) :: a1i, a2j, a3k, b1i, b2j, b3k 
+        REAL(KIND=r8), DIMENSION(torder3) :: sum1, sum2, sum3, sum4 
+        REAL(KIND=r8), DIMENSION(torder3) :: sum5, sum6, sum7, sum8 
         REAL(KIND=r8) :: sumA1, sumA2, sumA3, xx, yy, zz, Dd
         INTEGER :: a1exactind, a2exactind, a3exactind
 
         IF (ap%exist_ms==1) THEN
-
-          dj = 1.0_r8
-          dj(0) = 0.5_r8
-          dj(torder) = 0.5_r8
-
-          DO i = 0, torder
-             IF (MOD(i,2) == 0) THEN
-                w1i(i) = dj(i)
-             ELSE
-                w1i(i) = -dj(i)
-             END IF
-          END DO
 
           xl=ap%xyz_min(1)
           yl=ap%xyz_min(2)
@@ -783,6 +781,25 @@
           xhind=ap%xyz_highindex(1)
           yhind=ap%xyz_highindex(2)
           zhind=ap%xyz_highindex(3)
+
+          sum1 = 0.0_r8;
+          sum2 = 0.0_r8;
+          sum3 = 0.0_r8;
+          sum4 = 0.0_r8;
+          sum5 = 0.0_r8;
+          sum6 = 0.0_r8;
+          sum7 = 0.0_r8;
+          sum8 = 0.0_r8;
+
+          dj = 1.0_r8
+          dj(0) = 0.25_r8
+          dj(torder) = 0.25_r8
+
+          DO k1=0,torder
+             wx(k1) = -4.0 * cheb_wts(k1) / (ap%xyz_max(1) - ap%xyz_min(1))
+             wy(k1) = -4.0 * cheb_wts(k1) / (ap%xyz_max(2) - ap%xyz_min(2))
+             wz(k1) = -4.0 * cheb_wts(k1) / (ap%xyz_max(3) - ap%xyz_min(3))
+          END DO
 
           yzhind=xyz_dimglob(2)*xyz_dimglob(3)
           DO i=xlind,xhind
@@ -806,10 +823,18 @@
                    zz=zl+(k-zlind)*xyz_ddglob(3)
 
                    DO k1 = 0, torder
+                   
+                      dx = xx - ap%tinterp(1,k1)
+                      dy = yy - ap%tinterp(2,k1)
+                      dz = zz - ap%tinterp(3,k1)
 
-                      a1i(k1) = w1i(k1) / (xx - ap%tinterp(1,k1))
-                      a2j(k1) = w1i(k1) / (yy - ap%tinterp(2,k1))
-                      a3k(k1) = w1i(k1) / (zz - ap%tinterp(3,k1))
+                      a1i(k1) = wx(k1)/dx + dj(k1)/(dx*dx)
+                      a2j(k1) = wy(k1)/dy + dj(k1)/(dy*dy)
+                      a3k(k1) = wz(k1)/dz + dj(k1)/(dz*dz)
+
+                      b1i(k1) = dj(k1)/dx
+                      b2j(k1) = dj(k1)/dy
+                      b3k(k1) = dj(k1)/dz
 
                       sumA1 = sumA1 + a1i(k1)
                       sumA2 = sumA2 + a2j(k1)
@@ -831,18 +856,21 @@
                    IF (a1exactind > -1) THEN
                       sumA1 = 1.0_r8
                       a1i = 0.0_r8
+                      b1i = 0.0_r8
                       a1i(a1exactind) = 1.0_r8
                    END IF
 
                    IF (a2exactind > -1) THEN
                       sumA2 = 1.0_r8
                       a2j = 0.0_r8
+                      b2j = 0.0_r8
                       a2j(a2exactind) = 1.0_r8
                    END IF
 
                    IF (a3exactind > -1) THEN
                       sumA3 = 1.0_r8
                       a3k = 0.0_r8
+                      b3k = 0.0_r8
                       a3k(a3exactind) = 1.0_r8
                    END IF
 
@@ -852,7 +880,18 @@
                       DO k2 = 0, torder
                          DO k3 = 0, torder
                             kk = kk + 1
-                            peng = peng + ap%ms(kk) * a1i(k1) * a2j(k2) * a3k(k3) * Dd
+                            temp11 = a1i(k1) * a2j(k2) * Dd
+                            temp21 = b1i(k1) * a2j(k2) * Dd
+                            temp12 = a1i(k1) * b2j(k2) * Dd
+                            temp22 = b1i(k1) * b2j(k2) * Dd
+                            peng = peng + ap%ms(1,kk) * temp11 * a3k(k3) &
+                                        + ap%ms(2,kk) * temp21 * a3k(k3) &
+                                        + ap%ms(3,kk) * temp12 * a3k(k3) &
+                                        + ap%ms(4,kk) * temp11 * b3k(k3) &
+                                        + ap%ms(5,kk) * temp22 * a3k(k3) &
+                                        + ap%ms(6,kk) * temp12 * b3k(k3) &
+                                        + ap%ms(7,kk) * temp21 * b3k(k3) &
+                                        + ap%ms(8,kk) * temp22 * b3k(k3)
                          END DO
                       END DO
                    END DO
@@ -904,28 +943,49 @@
 ! local variables
 
       INTEGER :: k1,k2,k3,kk
-      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
-      REAL(KIND=r8) :: rad, kap_eta_2, kap_rad, rad_eta
+      REAL(KIND=r8), DIMENSION(0:torder) :: dx, dy, dz, dx2, dy2, dz2
+      REAL(KIND=r8) :: rad, invR, invRk, invR2, invR4, pot, d1, dpot1, dpot2, dpot3
+      REAL(KIND=r8) :: kappa2
+
+      kappa2 = kappa * kappa
 
       kk=0
-      kap_eta_2 = kappa * eta / 2_r8
 
       DO k1=0,torder
-          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
+          dx(k1) = (tarpos(1) - p%tinterp(1,k1))
+          dy(k1) = (tarpos(2) - p%tinterp(2,k1))
+          dz(k1) = (tarpos(3) - p%tinterp(3,k1))
+          dx2(k1) = dx(k1)**2
+          dy2(k1) = dy(k1)**2
+          dz2(k1) = dz(k1)**2
       END DO
 
       DO k1=0,torder
          DO k2=0,torder
             DO k3=0,torder
                kk=kk+1
-               rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
+               rad = SQRT(dx2(k1) + dy2(k2) + dz2(k3))
+               invR = 1.0_r8 / rad
+               invRk = kappa * invR
+               invR2 = invR * invR
+               invR4 = invR2 * invR2
 
-               kap_rad = kappa * rad
-               rad_eta = rad / eta
+               pot = 2.0_r8 * tarposq * invR * exp(-kappa * rad)
 
-               p%ms(kk) = p%ms(kk) - tarposq / rad &
-                                   * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
-                                   -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
+               d1 = invRk + invR2
+               dpot1 = d1 * pot
+               dpot2 = (invR2 * (kappa2 + 3.0_r8 * d1)) * pot
+               dpot3 = (invRk * invRk * (invRk + 6.0_r8 * invR2) + 15 * invR4 * d1) * pot
+
+               p%ms(1,kk) = p%ms(1,kk) - pot
+               p%ms(2,kk) = p%ms(2,kk) - dpot1 * dx(k1)
+               p%ms(3,kk) = p%ms(3,kk) - dpot1 * dy(k2)
+               p%ms(4,kk) = p%ms(4,kk) - dpot1 * dz(k3)
+               p%ms(5,kk) = p%ms(5,kk) - dpot2 * dx(k1) * dy(k2)
+               p%ms(6,kk) = p%ms(6,kk) - dpot2 * dy(k2) * dz(k3)
+               p%ms(7,kk) = p%ms(7,kk) - dpot2 * dx(k1) * dz(k3)
+               p%ms(8,kk) = p%ms(8,kk) - dpot3 * dx(k1) * dy(k2) * dz(k3)
+
            END DO
          END DO
       END DO
@@ -948,13 +1008,24 @@
 ! local variables
 
       INTEGER :: k1,k2,k3,kk
-      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
-      REAL(KIND=r8) :: rad, rad_eta
+      REAL(KIND=r8), DIMENSION(0:torder) :: dx, dy, dz, dx2, dy2, dz2
+      REAL(KIND=r8) :: invR, invR2, invR4, pot, auxpot, auxpot_eta
+      REAL(KIND=r8) :: rad, rad_eta, dpot1, dpot2, dpot3
+      REAL(KIND=r8) :: twoinvEta2, teninvEta2, fourinvEta4
+
+      twoinvEta2 = 2.0_r8 / (eta * eta)
+      teninvEta2 = 5.0_r8 * twoinvEta2
+      fourinvEta4 = twoinvEta2 * twoinvEta2
 
       kk=0
 
       DO k1=0,torder
-          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
+          dx(k1) = (tarpos(1) - p%tinterp(1,k1))
+          dy(k1) = (tarpos(2) - p%tinterp(2,k1))
+          dz(k1) = (tarpos(3) - p%tinterp(3,k1))
+          dx2(k1) = dx(k1)**2
+          dy2(k1) = dy(k1)**2
+          dz2(k1) = dz(k1)**2
       END DO
 
       DO k1=0,torder
@@ -962,10 +1033,30 @@
             DO k3=0,torder
                kk=kk+1
 
-               rad = SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
+               rad = SQRT(dx2(k1) + dy2(k2) + dz2(k3))
                rad_eta = rad / eta
+               invR = 1.0_r8 / rad
+               invR2 = invR * invR
+               invR4 = invR2 * invR2
 
-               p%ms(kk) = p%ms(kk) - tarposq / rad * erf(rad_eta)
+               pot = tarposq * erf(rad_eta) * invR
+               auxpot = tarposq * 2.0_r8 / sqrt(pi) * exp(-rad_eta * rad_eta)
+               auxpot_eta = auxpot / eta
+
+               dpot1 = invR2 * (pot - auxpot)
+               dpot2 = invR2 * (3.0_r8 * pot * invR2 - auxpot_eta &
+                          * (3.0_r8 * invR2 + twoinvEta2))
+               dpot3 = invR2 * (15.0_r8 * pot * invR4 - auxpot_eta &
+                          * (15.0_r8 * invR4 + teninvEta2 * invR2 + fourinvEta4))
+
+               p%ms(1,kk) = p%ms(1,kk) - pot
+               p%ms(2,kk) = p%ms(2,kk) - dpot1 * dx(k1)
+               p%ms(3,kk) = p%ms(3,kk) - dpot1 * dy(k2)
+               p%ms(4,kk) = p%ms(4,kk) - dpot1 * dz(k3)
+               p%ms(5,kk) = p%ms(5,kk) - dpot2 * dx(k1) * dy(k2)
+               p%ms(6,kk) = p%ms(6,kk) - dpot2 * dy(k2) * dz(k3)
+               p%ms(7,kk) = p%ms(7,kk) - dpot2 * dx(k1) * dz(k3)
+               p%ms(8,kk) = p%ms(8,kk) - dpot3 * dx(k1) * dy(k2) * dz(k3)
            END DO
          END DO
       END DO
@@ -987,12 +1078,18 @@
 ! local variables
 
       INTEGER :: k1,k2,k3,kk
-      REAL(KIND=r8), DIMENSION(3,0:torder) :: tempt
+      REAL(KIND=r8), DIMENSION(0:torder) :: dx, dy, dz, dx2, dy2, dz2
+      REAL(KIND=r8) :: invR, invRq, invR2, invR3, invR5, invR7
 
       kk=0
 
       DO k1=0,torder
-          tempt(:,k1) = (tarpos - p%tinterp(:,k1))**2
+          dx(k1) = (tarpos(1) - p%tinterp(1,k1))
+          dy(k1) = (tarpos(2) - p%tinterp(2,k1))
+          dz(k1) = (tarpos(3) - p%tinterp(3,k1))
+          dx2(k1) = dx(k1)**2
+          dy2(k1) = dy(k1)**2
+          dz2(k1) = dz(k1)**2
       END DO
 
 
@@ -1000,7 +1097,23 @@
          DO k2=0,torder
             DO k3=0,torder
                kk=kk+1
-               p%ms(kk) = p%ms(kk) - tarposq / SQRT(tempt(1,k1) + tempt(2,k2) + tempt(3,k3))
+               invR = 1.0_r8 / SQRT(dx2(k1) + dy2(k2) + dz2(k3)) 
+               invRq = invR * tarposq
+               invR2 = invR * invR
+               invR3 = invRq * invR2
+               invR5 = invR3 * invR2
+               invR7 = invR5 * invR2
+
+               invR5 = invR5 * 3.0_r8
+
+               p%ms(1,kk) = p%ms(1,kk) - invRq
+               p%ms(2,kk) = p%ms(2,kk) - invR3 * dx(k1)
+               p%ms(3,kk) = p%ms(3,kk) - invR3 * dy(k2)
+               p%ms(4,kk) = p%ms(4,kk) - invR3 * dz(k3)
+               p%ms(5,kk) = p%ms(5,kk) - invR5 * dx(k1) * dy(k2)
+               p%ms(6,kk) = p%ms(6,kk) - invR5 * dy(k2) * dz(k3)
+               p%ms(7,kk) = p%ms(7,kk) - invR5 * dx(k1) * dz(k3)
+               p%ms(8,kk) = p%ms(8,kk) - invR7 * dx(k1) * dy(k2) * dz(k3) * 15.0_r8
            END DO
          END DO
       END DO
