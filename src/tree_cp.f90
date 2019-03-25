@@ -1027,9 +1027,12 @@
       REAL(KIND=r8) :: rad, rad_eta, dpot1, dpot2, dpot3
       REAL(KIND=r8) :: twoinvEta2, teninvEta2, fourinvEta4
 
-      twoinvEta2 = 2.0_r8 / (eta * eta)
-      teninvEta2 = 5.0_r8 * twoinvEta2
-      fourinvEta4 = twoinvEta2 * twoinvEta2
+      REAL(KIND=r8) :: invRq, invR3, invR5, invR7
+
+
+!      twoinvEta2 = 2.0_r8 / (eta * eta)
+!      teninvEta2 = 5.0_r8 * twoinvEta2
+!      fourinvEta4 = twoinvEta2 * twoinvEta2
 
       kk=0
 
@@ -1047,30 +1050,48 @@
             DO k3=0,torder
                kk=kk+1
 
-               rad = SQRT(dx2(k1) + dy2(k2) + dz2(k3))
-               rad_eta = rad / eta
-               invR = 1.0_r8 / rad
+!               rad = SQRT(dx2(k1) + dy2(k2) + dz2(k3))
+!               rad_eta = rad / eta
+!               invR = 1.0_r8 / rad
+!               invR2 = invR * invR
+!               invR4 = invR2 * invR2
+!
+!               pot = tarposq * erf(rad_eta) * invR
+!               auxpot = tarposq * 2.0_r8 / sqrt(pi) * exp(-rad_eta * rad_eta)
+!               auxpot_eta = auxpot / eta
+!
+!               dpot1 = invR2 * (pot - auxpot)
+!               dpot2 = invR2 * (3.0_r8 * pot * invR2 - auxpot_eta &
+!                          * (3.0_r8 * invR2 + twoinvEta2))
+!               dpot3 = invR2 * (15.0_r8 * pot * invR4 - auxpot_eta &
+!                          * (15.0_r8 * invR4 + teninvEta2 * invR2 + fourinvEta4))
+!
+!               p%ms(1,kk) = p%ms(1,kk) - pot
+!               p%ms(2,kk) = p%ms(2,kk) - dpot1 * dx(k1)
+!               p%ms(3,kk) = p%ms(3,kk) - dpot1 * dy(k2)
+!               p%ms(4,kk) = p%ms(4,kk) - dpot1 * dz(k3)
+!               p%ms(5,kk) = p%ms(5,kk) - dpot2 * dx(k1) * dy(k2)
+!               p%ms(6,kk) = p%ms(6,kk) - dpot2 * dy(k2) * dz(k3)
+!               p%ms(7,kk) = p%ms(7,kk) - dpot2 * dx(k1) * dz(k3)
+!               p%ms(8,kk) = p%ms(8,kk) - dpot3 * dx(k1) * dy(k2) * dz(k3)
+
+               invR = 1.0_r8 / SQRT(dx2(k1) + dy2(k2) + dz2(k3))
+               invRq = invR * tarposq
                invR2 = invR * invR
-               invR4 = invR2 * invR2
+               invR3 = invRq * invR2
+               invR5 = invR3 * invR2
+               invR7 = invR5 * invR2
 
-               pot = tarposq * erf(rad_eta) * invR
-               auxpot = tarposq * 2.0_r8 / sqrt(pi) * exp(-rad_eta * rad_eta)
-               auxpot_eta = auxpot / eta
+               invR5 = invR5 * 3.0_r8
 
-               dpot1 = invR2 * (pot - auxpot)
-               dpot2 = invR2 * (3.0_r8 * pot * invR2 - auxpot_eta &
-                          * (3.0_r8 * invR2 + twoinvEta2))
-               dpot3 = invR2 * (15.0_r8 * pot * invR4 - auxpot_eta &
-                          * (15.0_r8 * invR4 + teninvEta2 * invR2 + fourinvEta4))
-
-               p%ms(1,kk) = p%ms(1,kk) - pot
-               p%ms(2,kk) = p%ms(2,kk) - dpot1 * dx(k1)
-               p%ms(3,kk) = p%ms(3,kk) - dpot1 * dy(k2)
-               p%ms(4,kk) = p%ms(4,kk) - dpot1 * dz(k3)
-               p%ms(5,kk) = p%ms(5,kk) - dpot2 * dx(k1) * dy(k2)
-               p%ms(6,kk) = p%ms(6,kk) - dpot2 * dy(k2) * dz(k3)
-               p%ms(7,kk) = p%ms(7,kk) - dpot2 * dx(k1) * dz(k3)
-               p%ms(8,kk) = p%ms(8,kk) - dpot3 * dx(k1) * dy(k2) * dz(k3)
+               p%ms(1,kk) = p%ms(1,kk) - invRq
+               p%ms(2,kk) = p%ms(2,kk) - invR3 * dx(k1)
+               p%ms(3,kk) = p%ms(3,kk) - invR3 * dy(k2)
+               p%ms(4,kk) = p%ms(4,kk) - invR3 * dz(k3)
+               p%ms(5,kk) = p%ms(5,kk) - invR5 * dx(k1) * dy(k2)
+               p%ms(6,kk) = p%ms(6,kk) - invR5 * dy(k2) * dz(k3)
+               p%ms(7,kk) = p%ms(7,kk) - invR5 * dx(k1) * dz(k3)
+               p%ms(8,kk) = p%ms(8,kk) - invR7 * dx(k1) * dy(k2) * dz(k3) * 15.0_r8
            END DO
          END DO
       END DO
