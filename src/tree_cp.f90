@@ -1056,181 +1056,106 @@
 
 ! setup variables
 
-      ddx = 2.0_r8*dx
-      ddy = 2.0_r8*dy
-      ddz = 2.0_r8*dz
+! setup variables
 
-      two_etasq = 2.0_r8 / (eta*eta)
-      two_etasqx = two_etasq*dx
-      two_etasqy = two_etasq*dy
-      two_etasqz = two_etasq*dz
-
-      dist = dx*dx + dy*dy + dz*dz
-      fac = 1.0_r8 / dist
-      dist = SQRT(dist)
+      ddx=2.0_r8*dx
+      ddy=2.0_r8*dy
+      ddz=2.0_r8*dz
+      fac=1.0_r8/(dx*dx+dy*dy+dz*dz)
+      sqfac=SQRT(fac)
 
 ! 0th coeff or function val
 
-      b(0,0,0) = -eta/sqrt(pi) * exp(-dist*dist/(eta*eta))
-      a(0,0,0) = -erf(dist/eta)/dist
+      a(0,0,0)=-sqfac
 
-!!!
-!!!Fix the rest of this!!!
-!!!
 ! 2 indices are 0
 
-      b(1,0,0) = two_etasqx * b(0,0,0)
-      b(0,1,0) = two_etasqy * b(0,0,0)
-      b(0,0,1) = two_etasqz * b(0,0,0)
-
-      a(1,0,0) = fac*dx*(a(0,0,0) + b(1,0,0))
-      a(0,1,0) = fac*dy*(a(0,0,0) + b(0,1,0))
-      a(0,0,1) = fac*dz*(a(0,0,0) + b(0,0,1))
-
+      a(1,0,0)=fac*dx*a(0,0,0)
+      a(0,1,0)=fac*dy*a(0,0,0)
+      a(0,0,1)=fac*dz*a(0,0,0)
 
       DO i=2,torderlim
-         i1=i-1; i2=i-2;
-
-         b(i,0,0) = cf1(i)*two_etasq * (dx*b(i1,0,0) - b(i2,0,0))
-         b(0,i,0) = cf1(i)*two_etasq * (dy*b(0,i1,0) - b(0,i2,0))
-         b(0,0,i) = cf1(i)*two_etasq * (dz*b(0,0,i1) - b(0,0,i2))
-
-         a(i,0,0) = fac*(ddx*cf2(i)*a(i1,0,0)-cf3(i)*a(i2,0,0)+&
-                    b(i,0,0))
-         a(0,i,0) = fac*(ddy*cf2(i)*a(0,i1,0)-cf3(i)*a(0,i2,0)+&
-                    b(0,i,0))
-         a(0,0,i) = fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2)+&
-                    b(0,0,i))
+         i1=i-1; i2=i-2
+         a(i,0,0)=fac*(ddx*cf2(i)*a(i1,0,0)-cf3(i)*a(i2,0,0))
+         a(0,i,0)=fac*(ddy*cf2(i)*a(0,i1,0)-cf3(i)*a(0,i2,0))
+         a(0,0,i)=fac*(ddz*cf2(i)*a(0,0,i1)-cf3(i)*a(0,0,i2))
       END DO
 
 ! 1 index 0, 1 index 1, other >=1
 
-      b(1,1,0) = two_etasqx * b(0,1,0)
-      b(1,0,1) = two_etasqx * b(0,0,1)
-      b(0,1,1) = two_etasqy * b(0,0,1)
-
-      a(1,1,0) = fac*(dx*a(0,1,0)+ddy*a(1,0,0) + b(1,1,0))
-      a(1,0,1) = fac*(dx*a(0,0,1)+ddz*a(1,0,0) + b(1,0,1))
-      a(0,1,1) = fac*(dy*a(0,0,1)+ddz*a(0,1,0) + b(0,1,1))
+      a(1,1,0)=fac*(dx*a(0,1,0)+ddy*a(1,0,0))
+      a(1,0,1)=fac*(dx*a(0,0,1)+ddz*a(1,0,0))
+      a(0,1,1)=fac*(dy*a(0,0,1)+ddz*a(0,1,0))
 
       DO i=2,torderlim-1
-         i1=i-1; i2=i-2;
-
-         b(1,0,i) = two_etasqx * b(0,0,i)
-         b(0,1,i) = two_etasqy * b(0,0,i)
-         b(0,i,1) = two_etasqz * b(0,i,0)
-         b(1,i,0) = two_etasqx * b(0,i,0)
-         b(i,1,0) = two_etasqy * b(i,0,0)
-         b(i,0,1) = two_etasqz * b(i,0,0)
-
-         a(1,0,i) = fac*(dx*a(0,0,i)+ddz*a(1,0,i1)-a(1,0,i2)+&
-                    b(1,0,i))
-         a(0,1,i) = fac*(dy*a(0,0,i)+ddz*a(0,1,i1)-a(0,1,i2)+&
-                    b(0,1,i))
-         a(0,i,1) = fac*(dz*a(0,i,0)+ddy*a(0,i1,1)-a(0,i2,1)+&
-                    b(0,i,1))
-         a(1,i,0) = fac*(dx*a(0,i,0)+ddy*a(1,i1,0)-a(1,i2,0)+&
-                    b(1,i,0))
-         a(i,1,0) = fac*(dy*a(i,0,0)+ddx*a(i1,1,0)-a(i2,1,0)+&
-                    b(i,1,0))
-         a(i,0,1) = fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1)+&
-                    b(i,0,1))
+         i1=i-1; i2=i-2
+         a(1,0,i)=fac*(dx*a(0,0,i)+ddz*a(1,0,i1)-a(1,0,i2))
+         a(0,1,i)=fac*(dy*a(0,0,i)+ddz*a(0,1,i1)-a(0,1,i2))
+         a(0,i,1)=fac*(dz*a(0,i,0)+ddy*a(0,i1,1)-a(0,i2,1))
+         a(1,i,0)=fac*(dx*a(0,i,0)+ddy*a(1,i1,0)-a(1,i2,0))
+         a(i,1,0)=fac*(dy*a(i,0,0)+ddx*a(i1,1,0)-a(i2,1,0))
+         a(i,0,1)=fac*(dz*a(i,0,0)+ddx*a(i1,0,1)-a(i2,0,1))
       END DO
 
 ! 1 index 0, others >= 2
 
       DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
+         i1=i-1; i2=i-2
          DO j=2,torderlim-i
-            j1=j-1; j2=j-2;
-
-            b(i,j,0) = cf1(i)*two_etasq * (dx*b(i1,j,0) - b(i2,j,0))
-            b(i,0,j) = cf1(i)*two_etasq * (dx*b(i1,0,j) - b(i2,0,j))
-            b(0,i,j) = cf1(i)*two_etasq * (dx*b(0,i1,j) - b(0,i2,j))
-
-            a(i,j,0) = fac*(ddx*cf2(i)*a(i1,j,0)+ddy*a(i,j1,0) &
-                       -cf3(i)*a(i2,j,0)-a(i,j2,0)+&
-                       b(i,j,0))
-            a(i,0,j) = fac*(ddx*cf2(i)*a(i1,0,j)+ddz*a(i,0,j1)&
-                       -cf3(i)*a(i2,0,j)-a(i,0,j2)+&
-                       b(i,0,j))
-            a(0,i,j) = fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1)&
-                       -cf3(i)*a(0,i2,j)-a(0,i,j2)+&
-                       b(0,i,j))
+            j1=j-1; j2=j-2
+            a(i,j,0)=fac*(ddx*cf2(i)*a(i1,j,0)+ddy*a(i,j1,0) &
+                            -cf3(i)*a(i2,j,0)-a(i,j2,0))
+            a(i,0,j)=fac*(ddx*cf2(i)*a(i1,0,j)+ddz*a(i,0,j1) &
+                            -cf3(i)*a(i2,0,j)-a(i,0,j2))
+            a(0,i,j)=fac*(ddy*cf2(i)*a(0,i1,j)+ddz*a(0,i,j1) &
+                            -cf3(i)*a(0,i2,j)-a(0,i,j2))
          END DO
       END DO
 
-! 2 indices 1, other >= 1
-! b(1,1,1) is correct, but a little tricky!
-!      b(1,1,1)=5.0*dz*fac*b(1,1,0)
 
-      b(1,1,1) = two_etasqx * b(0,1,1)
-      a(1,1,1) = fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0)+&
-                 b(1,1,1))
+! 2 indices 1, other >= 1
+
+      a(1,1,1)=fac*(dx*a(0,1,1)+ddy*a(1,0,1)+ddz*a(1,1,0))
 
       DO i=2,torderlim-2
-         i1=i-1; i2=i-2;
-
-         b(1,1,i) = two_etasqx * b(0,1,i)
-         b(1,i,1) = two_etasqx * b(0,i,1)
-         b(i,1,1) = two_etasqy * b(i,0,1)
-
-         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i1)&
-                 -a(1,1,i2) + b(1,1,i))
-         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i1,1)+ddz*a(1,i,0)&
-                 -a(1,i2,1) + b(1,i,1))
-         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0)&
-                 -a(i2,1,1) + b(i,1,1))
+         i1=i-1; i2=i-2
+         a(1,1,i)=fac*(dx*a(0,1,i)+ddy*a(1,0,i)+ddz*a(1,1,i1) &
+                        -a(1,1,i2))
+         a(1,i,1)=fac*(dx*a(0,i,1)+ddy*a(1,i1,1)+ddz*a(1,i,0) &
+                        -a(1,i2,1))
+         a(i,1,1)=fac*(dy*a(i,0,1)+ddx*a(i1,1,1)+ddz*a(i,1,0) &
+                        -a(i2,1,1))
       END DO
 
 ! 1 index 1, others >=2
-
       DO i=2,torderlim-3
-         i1=i-1; i2=i-2;
-
+         i1=i-1; i2=i-2
          DO j=2,torderlim-1-i
-            j1=j-1; j2=j-2;
-
-            b(1,i,j) = two_etasqx * b(0,i,j)
-            b(i,1,j) = two_etasqy * b(i,0,j)
-            b(i,j,1) = two_etasqz * b(i,j,0)
-
-            a(1,i,j) = fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1)&
-                      -a(1,i2,j)-a(1,i,j2) + b(1,i,j))
-            a(i,1,j) = fac*(dy*a(i,0,j)+ddx*a(i1,1,j)+ddz*a(i,1,j1)&
-                      -a(i2,1,j)-a(i,1,j2) + b(i,1,j))
-            a(i,j,1) = fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1)&
-                      -a(i2,j,1)-a(i,j2,1) + b(i,j,1))
-
+            j1=j-1; j2=j-2
+            a(1,i,j)=fac*(dx*a(0,i,j)+ddy*a(1,i1,j)+ddz*a(1,i,j1) &
+                           -a(1,i2,j)-a(1,i,j2))
+            a(i,1,j)=fac*(dy*a(i,0,j)+ddx*a(i1,1,j)+ddz*a(i,1,j1) &
+                           -a(i2,1,j)-a(i,1,j2))
+            a(i,j,1)=fac*(dz*a(i,j,0)+ddx*a(i1,j,1)+ddy*a(i,j1,1) &
+                           -a(i2,j,1)-a(i,j2,1))
          END DO
       END DO
 
 ! all indices >=2
-
       DO k=2,torderlim-4
-         k1=k-1; k2=k-2;
-
+         k1=k-1; k2=k-2
          DO j=2,torderlim-2-k
-            j1=j-1; j2=j-2;
-
+            j1=j-1; j2=j-2
             DO i=2,torderlim-k-j
-               i1=i-1; i2=i-2;
+                i1=i-1; i2=i-2;
 
-!               b(i,j,k) = cf1(i)*two_etasq * (dx*b(i1,j,k) - b(i2,j,k))
-!
-!               a(i,j,k) = fac * (ddx*cf2(i)*a(i1,j,k) + ddy*a(i,j1,k) &
-!                                   + ddz*a(i,j,k1) - cf3(i)*a(i2,j,k) &
-!                                   - a(i,j2,k) - a(i,j,k2) + b(i,j,k))
-
-               b(i,j,k) = cf1(i+j+k) * two_etasq &
-                        * (dx*b(i1,j,k) + dy*b(i,j1,k) + dz*b(i,j,k1) &
-                            - b(i2,j,k)    - b(i,j2,k)    - b(i,j,k2))
+!               a(i,j,k)=fac*(ddx*cf2(i)*a(i-1,j,k)+ddy*a(i,j1,k) &
+!                           +ddz*a(i,j,k1)-cf3(i)*a(i-2,j,k) &
+!                           -a(i,j2,k)-a(i,j,k2))
 
                a(i,j,k) = fac &
                         * (cf2(i+j+k) * (ddx*a(i1,j,k) + ddy*a(i,j1,k) + ddz*a(i,j,k1)) &
-                         - cf3(i+j+k) * (    a(i2,j,k) +     a(i,j2,k) +     a(i,j,k2)) &
-                           + b(i,j,k))
+                         - cf3(i+j+k) * (    a(i2,j,k) +     a(i,j2,k) +     a(i,j,k2)))
 
             END DO
          END DO
