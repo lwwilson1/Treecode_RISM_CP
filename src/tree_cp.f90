@@ -1049,12 +1049,10 @@
 
 ! local varaibles
 
-      REAL(KIND=r8) :: ddx,ddy,ddz,dist,fac
+      REAL(KIND=r8) :: ddx,ddy,ddz,fac,sqfac
       REAL(KIND=r8) :: two_etasq, two_etasqx
       REAL(KIND=r8) :: two_etasqy, two_etasqz
       INTEGER :: i,j,k,i1,i2,j1,j2,k1,k2
-
-! setup variables
 
 ! setup variables
 
