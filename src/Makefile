@@ -1,4 +1,7 @@
-OFILES = treedriver.o tree_cp.o 
+OMPOFILES = treedriver.o tree_cp.o
+OMPTARGET = treecp-omp
+
+OFILES = treedriver.o tree_cp.o
 TARGET = treecp
 
 AOFILES = exact_coul.o 
@@ -7,8 +10,11 @@ ATARGET = direct
 BOFILES = exact_coul_grid.o 
 BTARGET = direct-grid
 
-CC = gfortran
+CC = mpifort
 FFLAGS = -Wall -Wextra -O3
+
+$(OMPTARGET): $(OMPOFILES)
+	$(CC) $(OMPOFILES) -qopenmp -o $@
 
 $(TARGET): $(OFILES)
 	$(CC) $(OFILES) -o $@

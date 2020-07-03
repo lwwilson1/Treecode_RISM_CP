@@ -1638,8 +1638,8 @@
       level=0
       minlevel=50000
 
-      WRITE(6,*) ' '
-      WRITE(6,*) 'Creating tree...'
+      !WRITE(6,*) ' '
+      !WRITE(6,*) 'Creating tree...'
 
       maxlevel=0
       CALL CREATE_TREE_N0(trootT,maxparnodeT,xyzminmax,xyzdim,xyzind,level)
@@ -1650,19 +1650,19 @@
 
 ! print tree information to stdout 
 
-         WRITE(6,*) ' '
-         WRITE(6,*) 'Tree created. '
-         WRITE(6,*) 'Tree parameters: '
-         WRITE(6,*) ' '
-         WRITE(6,*) '         numpar: ',trootT%numpar
-         WRITE(6,*) '          x_mid: ',trootT%xyz_mid(1)
-         WRITE(6,*) '          y_mid: ',trootT%xyz_mid(2)
-         WRITE(6,*) '          z_mid: ',trootT%xyz_mid(3)
-         WRITE(6,*) '         radius: ',trootT%radius   
-         WRITE(6,*) '         torder: ',torder
-         WRITE(6,*) '          theta: ',theta
-         WRITE(6,*) '     maxparnode: ',maxparnodeT
-         WRITE(6,*) ' '
+         !WRITE(6,*) ' '
+         !WRITE(6,*) 'Tree created. '
+         !WRITE(6,*) 'Tree parameters: '
+         !WRITE(6,*) ' '
+         !WRITE(6,*) '         numpar: ',trootT%numpar
+         !WRITE(6,*) '          x_mid: ',trootT%xyz_mid(1)
+         !WRITE(6,*) '          y_mid: ',trootT%xyz_mid(2)
+         !WRITE(6,*) '          z_mid: ',trootT%xyz_mid(3)
+         !WRITE(6,*) '         radius: ',trootT%radius   
+         !WRITE(6,*) '         torder: ',torder
+         !WRITE(6,*) '          theta: ',theta
+         !WRITE(6,*) '     maxparnode: ',maxparnodeT
+         !WRITE(6,*) ' '
  
       CALL DATE_AND_TIME(datec,timec,zonec,time1)
 
@@ -1685,24 +1685,146 @@
       CALL TTIME(time1,time2,totaltime)
       timetree = timetree + totaltime
 
-         WRITE(6,*) ' '
-         WRITE(6,*) '   Finished calculation. '
-         WRITE(6,*) '    Tree timing results: '
-         WRITE(6,*) ' '
-         WRITE(6,*) ' Tree creation time (s): ', timetree-totaltime
-         WRITE(6,*) '  Treecode run time (s): ', totaltime
-         WRITE(6,*) 'Treecode total time (s): ', timetree
+         !WRITE(6,*) ' '
+         !WRITE(6,*) '   Finished calculation. '
+         !WRITE(6,*) '    Tree timing results: '
+         !WRITE(6,*) ' '
+         !WRITE(6,*) ' Tree creation time (s): ', timetree-totaltime
+         !WRITE(6,*) '  Treecode run time (s): ', totaltime
+         !WRITE(6,*) 'Treecode total time (s): ', timetree
 
 ! Call CLEANUP to deallocate global variables and tree structure.
 
-         WRITE(6,*) ' '
-         WRITE(6,*) 'Deallocating tree structure...'
-         WRITE(6,*) ' '
+         !WRITE(6,*) ' '
+         !WRITE(6,*) 'Deallocating tree structure...'
+         !WRITE(6,*) ' '
 
       CALL CLEANUP(trootT)
 
       END SUBROUTINE TREECODE
+
+!!!!!!!!!!!!!!
+
+      SUBROUTINE DIRECT_ENG(xS,yS,zS,qS,numparsS,numparsT,denergy,dpeng, &
+                            pot_type, kappa, eta, eps, T, xyzminmax, xyzdim) 
+
+      IMPLICIT NONE
+
+      INTEGER,PARAMETER :: r8=SELECTED_REAL_KIND(12)
+      REAL(KIND=r8),PARAMETER :: kb = 0.001987215873_r8
+      REAL(KIND=r8),PARAMETER :: coulomb = 332.0637790571_r8
+
+      INTEGER,INTENT(IN) :: numparsS,numparsT 
+      REAL(KIND=r8),DIMENSION(numparsS),INTENT(IN) :: xS,yS,zS,qS
+
+      REAL(KIND=r8),INTENT(IN) :: kappa, eta, eps, T
+      INTEGER,INTENT(IN) :: pot_type
+
+      INTEGER,DIMENSION(3),INTENT(IN) :: xyzdim
+      REAL(KIND=r8),DIMENSION(6),INTENT(IN) :: xyzminmax
+
+      REAL(KIND=r8),DIMENSION(numparsT),INTENT(INOUT) :: denergy
+      REAL(KIND=r8),INTENT(INOUT) :: dpeng
+
+! local variables 
+   
+      INTEGER :: i,j,k,nn,m
+      REAL(KIND=r8) :: tx,ty,tz,xi,yi,zi,teng, rad
+      REAL(KIND=r8),DIMENSION(3) :: xyzdd
+
+      xyzdd(1) = (xyzminmax(2)-xyzminmax(1)) / (xyzdim(1)-1)
+      xyzdd(2) = (xyzminmax(4)-xyzminmax(3)) / (xyzdim(2)-1)
+      xyzdd(3) = (xyzminmax(6)-xyzminmax(5)) / (xyzdim(3)-1)
+
+      dpeng=0.0_r8; denergy=0.0_r8
+
+      IF (pot_type == 0) THEN
+          nn=0
+          DO i=0,xyzdim(1)-1
+              DO j=0,xyzdim(2)-1
+                  DO k=0,xyzdim(3)-1
+
+                      nn=nn+1
+                      xi=xyzminmax(1)+i*xyzdd(1)
+                      yi=xyzminmax(3)+j*xyzdd(2)
+                      zi=xyzminmax(5)+k*xyzdd(3)
+                      teng=0.0_r8
+
+                      DO m=1,numparsS
+                          tx=xi-xS(m)
+                          ty=yi-yS(m)
+                          tz=zi-zS(m)
+                          rad = SQRT(tx*tx + ty*ty + tz*tz)
+                          teng = teng + qS(m) / rad &
+                               * (exp(-kappa*rad) * erfc(kappa*eta/2 - rad/eta) &
+                               - exp(kappa*rad) * erfc(kappa*eta/2 + rad/eta))
+                      END DO
+
+                      denergy(nn) = -teng * exp((kappa*eta)**2 / 4) / (2*eps) &
+                                  * sqrt(coulomb/kb/T)
+                  END DO
+              END DO
+          END DO
+
+      ELSE IF (pot_type == 1) THEN
+              
+          nn=0
+          DO i=0,xyzdim(1)-1
+              DO j=0,xyzdim(2)-1
+                  DO k=0,xyzdim(3)-1
+
+                      nn=nn+1
+                      xi=xyzminmax(1)+i*xyzdd(1)
+                      yi=xyzminmax(3)+j*xyzdd(2)
+                      zi=xyzminmax(5)+k*xyzdd(3)
+                      teng=0.0_r8
+
+                      DO m=1,numparsS
+                          tx=xi-xS(m)
+                          ty=yi-yS(m)
+                          tz=zi-zS(m)
+                          rad = SQRT(tx*tx + ty*ty + tz*tz)
+                          teng = teng + qS(m) / rad * erf(rad/eta)
+                      END DO
+
+                      denergy(nn) = -teng * sqrt(coulomb/kb/T)
+                  END DO
+              END DO
+          END DO
+
+      ELSE IF (pot_type == 2) THEN
+          nn=0
+          DO i=0,xyzdim(1)-1
+              DO j=0,xyzdim(2)-1
+                  DO k=0,xyzdim(3)-1
+
+                      nn=nn+1
+                      xi=xyzminmax(1)+i*xyzdd(1)
+                      yi=xyzminmax(3)+j*xyzdd(2)
+                      zi=xyzminmax(5)+k*xyzdd(3)
+                      teng=0.0_r8
+
+                      DO m=1,numparsS
+                          tx=xi-xS(m)
+                          ty=yi-yS(m)
+                          tz=zi-zS(m)
+                          rad = SQRT(tx*tx + ty*ty + tz*tz)
+                          teng = teng + qS(m) / rad
+                      END DO
+
+                      denergy(nn) = -teng * sqrt(coulomb/kb/T)
+                  END DO
+              END DO
+          END DO
+      END IF
+
+      !print *, "Summing up energies..."
+      dpeng=SUM(denergy)
+      
+      END SUBROUTINE DIRECT_ENG  
+
 !!!!!!!!!!!!!!!!!!
+
       SUBROUTINE TTIME(timebeg,timeend,totaltime)
       IMPLICIT NONE
 !
