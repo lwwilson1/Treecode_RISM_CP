@@ -55,7 +55,8 @@
       CHARACTER (LEN=5)  :: zonec
 
       CHARACTER (LEN=512) :: sampin1,sampin3,sampout
-      REAL(KIND=r8)      :: timedirect,timetree
+      REAL(KIND=r8)      :: timedirect,timetree,timedirect_max, timetree_max
+      REAL(KIND=r8)      :: t1,timetreempi,timetreempi_max
 
 ! Fortran MPI IO
       INTEGER :: direct_out, finfo, direct_in
@@ -229,10 +230,12 @@
 
 ! Calling main subroutine to approximate the energy
 
+      t1 = MPI_Wtime()
       CALL TREECODE(xS,yS,zS,qS,xyzminmax,xyzdim,numparsS,numparsT, &
                       tenergy,tpeng,order,theta, &
                       maxparnodeT,timetree, &
                       pot_type, kappa, eta, eps, T)
+      timetreempi = MPI_Wtime() - t1
 
 
       IF (direct_calc == 0) THEN
@@ -246,13 +249,17 @@
       CALL MPI_Reduce(dpeng, dpeng_glob, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD, err)
       CALL MPI_Reduce(tpeng, tpeng_glob, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD, err)
 
+      CALL MPI_Reduce(timetree, timetree_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD, err)
+      CALL MPI_Reduce(timetreempi, timetreempi_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD, err)
+      CALL MPI_Reduce(timedirect, timedirect_max, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD, err)
+
 
       IF (rank == 0) THEN 
           WRITE(6,*) ' '
           IF (direct_calc == 0) THEN
-             WRITE(6,'("                      Direct time (s): ",ES15.8)') timedirect
+             WRITE(6,'("                      Direct time (s): ",ES15.8)') timedirect_max
           END IF
-          WRITE(6,'("                        Tree time (s): ",ES15.8)') timetree
+          WRITE(6,'("                        Tree time (s): ",ES15.8)') timetree_max
           WRITE(6,*) ' '
           IF (direct_calc == 0 .OR. direct_calc == 1) THEN
              WRITE(6,'("              Direct Potential Energy: ",ES15.8)') dpeng_glob 
@@ -298,7 +305,7 @@
               OPEN(unit=85,file=sampout,status='replace',action='write')
               write(85,15) numparsS, ", ", numparsT, ", ", numProcs, ", ", theta, ", ", order, ", ",  maxparnodeT, &
                            ", ", ABS((tpeng_glob-dpeng_glob)/dpeng_glob), ", ", relinferr_glob, ", ", reln2err_glob, &
-                           ", ", timetree                                                            
+                           ", ", timetree_max, ", ", timetreempi_max
               CLOSE(unit=85)                                                                         
           END IF
       END IF 
@@ -322,7 +329,7 @@
 
 
  13   FORMAT(E24.16)                                                                         
- 15   FORMAT(I9,A,I9,A,I4,A,F12.8,A,I3,A,I4,A,E24.16,A,E24.16,A,E24.16,A,F24.16)                  
+ 15   FORMAT(I9,A,I9,A,I4,A,F12.8,A,I3,A,I4,A,E24.16,A,E24.16,A,E24.16,A,F24.16,A,F24.16)
 100   FORMAT(A7, A5, A5, A7, A6, F8.3, F8.3, F8.3, F8.4, A8, A9)  
 
       CALL MPI_Finalize(err)

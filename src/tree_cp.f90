@@ -59,7 +59,7 @@
            INTEGER          :: numpar
            REAL(KIND=r8),DIMENSION(3) :: xyz_min, xyz_max, xyz_mid
 
-           REAL(KIND=r8)    :: radius,sqradius,aspect
+           REAL(KIND=r8)    :: radius,sqradius,aspect,min_len
            INTEGER          :: level,num_children,exist_ms
            REAL(KIND=r8),DIMENSION(:),POINTER :: ms
            TYPE(tnode_pointer), DIMENSION(8) :: child
@@ -160,7 +160,7 @@
 
 ! local variables
       REAL(KIND=r8), DIMENSION(3) :: xyz_len
-      REAL(KIND=r8) :: lmax,t2
+      REAL(KIND=r8) :: lmax
       INTEGER :: i, err, loclev, numposchild
 
       REAL(KIND=r8), DIMENSION(6,8) :: xyzmms
@@ -205,10 +205,10 @@
       xyz_len=p%xyz_max-p%xyz_min
 
       lmax=MAXVAL(xyz_len)
-      t2=MINVAL(xyz_len)
+      p%min_len=MINVAL(xyz_len)
 
-      IF (t2 .NE. 0.0_r8) THEN
-         p%aspect=lmax/t2
+      IF (p%min_len .GT. 0.0_r8) THEN
+         p%aspect=lmax/p%min_len
       ELSE
          p%aspect=0.0_r8
       END IF
@@ -548,20 +548,25 @@
 ! local variables
 
       REAL(KIND=r8),DIMENSION(3) :: xyz_t
-      REAL(KIND=r8) :: distsq
+      REAL(KIND=r8) :: distsq, dist
       INTEGER :: i, err
 
 ! determine DISTSQ for MAC test
 
       xyz_t=tarpos-p%xyz_mid
       distsq=SUM(xyz_t**2)
+      dist=SQRT(distsq)
 
 ! intialize potential energy and force 
 
 ! If MAC is accepted and there is more than 1 particle in the 
 ! box use the expansion for the approximation.
-      IF ((p%sqradius .LT. distsq*thetasq) .AND. &
-         (p%sqradius .NE. 0.0_r8)) THEN
+      IF ((    p%sqradius .LT. distsq * thetasq) .AND. &
+          (    p%sqradius .GT. 0.0_r8          ) .AND. &
+          (dist-p%min_len .GE. 5.0_r8 * eta    ) .AND. &
+          (    torderflat .LE. 4 * p%numpar    )) THEN
+      !IF ((p%sqradius .LT. distsq*thetasq) .AND. &
+      !   (p%sqradius .NE. 0.0_r8)) THEN
 
          CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa)
 

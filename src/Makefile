@@ -1,5 +1,5 @@
-OMPOFILES = treedriver.o tree_cp.o
-OMPTARGET = treecp-omp
+#OMPOFILES = treedriver.o tree_cp.o
+#OMPTARGET = treecp-omp
 
 OFILES = treedriver.o tree_cp.o
 TARGET = treecp
@@ -13,8 +13,8 @@ BTARGET = direct-grid
 CC = mpifort
 FFLAGS = -Wall -Wextra -O3
 
-$(OMPTARGET): $(OMPOFILES)
-	$(CC) $(OMPOFILES) -qopenmp -o $@
+#$(OMPTARGET): $(OMPOFILES)
+#	$(CC) $(OMPOFILES) -qopenmp -o $@
 
 $(TARGET): $(OFILES)
 	$(CC) $(OFILES) -o $@
