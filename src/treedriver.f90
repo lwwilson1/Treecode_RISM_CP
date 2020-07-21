@@ -69,11 +69,11 @@
 
 ! local variables
 
-      INTEGER :: i,err,stat, rank, numProcs
+      INTEGER :: i,err,stat, rank, numProcs, provided
       CHARACTER (LEN=10) :: c1, c2, c3, c4, c5, c6, c7
       REAL(KIND=r8) :: a1, a2, a3, a4, junk_read
 
-      CALL MPI_Init(err)
+      CALL MPI_Init_thread(MPI_THREAD_FUNNELED, provided, err)
 
       CALL MPI_Comm_size(MPI_COMM_WORLD,numProcs,err)
       CALL MPI_Comm_rank(MPI_COMM_WORLD,rank,err)

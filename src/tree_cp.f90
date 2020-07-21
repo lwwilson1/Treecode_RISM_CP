@@ -23,6 +23,7 @@
 !
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
       MODULE treecode_procedures
+      USE OMP_LIB
       IMPLICIT NONE
 
 ! r8 is 8-byte (double precision) real
@@ -34,12 +35,15 @@
 
       INTEGER :: torder, torderlim, torderflat
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:) :: cf,cf1,cf2,cf3
+
       REAL(KIND=r8),ALLOCATABLE,DIMENSION(:,:,:) :: a, b
+      !$OMP THREADPRIVATE(a, b) 
       
 ! global variables used when computing potential/force
 
       REAL(KIND=r8),DIMENSION(3) :: tarpos
       REAL(KIND=r8) :: thetasq,tarposq
+      !$OMP THREADPRIVATE(tarpos, tarposq) 
 
 ! global variables for postition and charge storage
 
@@ -106,13 +110,22 @@
 
 ! allocate global Taylor expansion variables
 
-      ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), &
-               a(-2:torderlim, -2:torderlim, -2:torderlim), &
+      ALLOCATE(cf(0:torder), cf1(torderlim), cf2(torderlim), cf3(torderlim), STAT=err)
+      IF (err .NE. 0) THEN
+         WRITE(6,*) 'Error allocating Taylor variables! '
+         STOP
+      END IF
+
+!$OMP PARALLEL
+      !PRINT *, "THREAD ", OMP_GET_THREAD_NUM(), " is allocating a, b."
+
+      ALLOCATE(a(-2:torderlim, -2:torderlim, -2:torderlim), &
                b(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error allocating Taylor variables! '
          STOP
       END IF
+!$OMP END PARALLEL
 
 ! initialize arrays for Taylor sums and coeffs
       DO i = 0, torder
@@ -415,17 +428,20 @@
       INTEGER :: i,j
 
       EnP=0.0_r8
+      !$OMP PARALLEL DO PRIVATE(i, j)
       DO i=1,numparsS
          tarpos(1)=xS(i)
          tarpos(2)=yS(i)
          tarpos(3)=zS(i)
          tarposq=qS(i)
+         !PRINT *, "THREAD ", OMP_GET_THREAD_NUM(), " is handling source ", i, " with tarpos, tarposq ", tarpos(1), tarpos(2), tarpos(3), tarposq
 
          DO j=1,p%num_children
             CALL COMPUTE_CP1_TCF(p%child(j)%p_to_tnode,EnP, &
                                  numparsT, kappa, eta)
          END DO
       END DO
+      !$OMP END PARALLEL DO
 
       CALL COMPUTE_CP2(p,EnP,numparsT)
  
@@ -570,6 +586,7 @@
 
          CALL COMP_TCOEFF_TCF(xyz_t(1),xyz_t(2),xyz_t(3), kappa)
 
+         !$OMP CRITICAL
          IF (p%exist_ms .EQ. 0) THEN
              ALLOCATE(p%ms(torderflat),STAT=err)
              IF (err .NE. 0) THEN
@@ -580,6 +597,7 @@
              p%ms=0.0_r8
              p%exist_ms=1
          END IF
+         !$OMP END CRITICAL
 
          CALL COMP_CMS(p)   
     
@@ -787,6 +805,8 @@
           zhind=ap%xyz_highindex(3)
 
           yzhind=xyz_dimglob(2)*xyz_dimglob(3)
+
+          !!$OMP PARALLEL DO COLLAPSE(3) PRIVATE(i,j,k,nn,dx,dy,dz,kk,peng,k3,k2,k1,tx,ty)
           DO i=xlind,xhind
              DO j=ylind,yhind
                 DO k=zlind,zhind
@@ -819,11 +839,13 @@
                       peng = dz * peng + ty
                    END DO
 
+                   !!$OMP ATOMIC UPDATE
                    EnP(nn)=EnP(nn)+peng
 
                 END DO
              END DO
           END DO
+          !!$OMP END PARALLEL DO
 
         END IF
 
@@ -1316,6 +1338,7 @@
          DO k2=torder-k3,0,-1
             DO k1=torder-k3-k2,0,-1
                kk=kk+1
+               !$OMP ATOMIC UPDATE
                p%ms(kk)=p%ms(kk)+tarposq*a(k1,k2,k3)
            END DO
          END DO
@@ -1344,9 +1367,11 @@
 ! local variables
 
       INTEGER :: i,j,k,nn
-      REAL(KIND=r8) :: tx,ty,tz,xl,yl,zl,rad
+      REAL(KIND=r8) :: tx,ty,tz,xl,yl,zl,rad,temp
       INTEGER :: xlind,ylind,zlind,xhind,yhind,zhind, yzhind
       REAL(KIND=r8) :: kap_eta_2, kap_rad, rad_eta
+
+      kap_eta_2 = kappa * eta / 2_r8
 
       xl=p%xyz_min(1)
       yl=p%xyz_min(2)
@@ -1371,13 +1396,15 @@
                tz=zl+(k-zlind)*xyz_ddglob(3)-tarpos(3)
 
                rad = SQRT(tx*tx + ty*ty + tz*tz)
-               kap_eta_2 = kappa * eta / 2_r8
                kap_rad = kappa * rad
                rad_eta = rad / eta
 
-               EnP(nn) = EnP(nn) - tarposq / rad &
-                                 * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
-                                 -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
+               temp = - tarposq / rad &
+                      * (exp(-kap_rad) * erfc(kap_eta_2 - rad_eta) &
+                      -  exp( kap_rad) * erfc(kap_eta_2 + rad_eta))
+
+               !$OMP ATOMIC UPDATE
+               EnP(nn) = EnP(nn) + temp
 
             END DO
          END DO
@@ -1513,11 +1540,19 @@
   
       INTEGER :: err
 
-      DEALLOCATE(cf,cf1,cf2,cf3,a,b, STAT=err)
+      DEALLOCATE(cf,cf1,cf2,cf3, STAT=err)
       IF (err .NE. 0) THEN
          WRITE(6,*) 'Error deallocating Taylor variables! '
          STOP
       END IF
+
+!$OMP PARALLEL
+      DEALLOCATE(a,b, STAT=err)
+      IF (err .NE. 0) THEN
+         WRITE(6,*) 'Error deallocating Taylor variables! '
+         STOP
+      END IF
+!$OMP END PARALLEL
 
       CALL REMOVE_NODE(p)
       DEALLOCATE(p, STAT=err)
@@ -1614,7 +1649,8 @@
 
 ! local variables
 
-      TYPE(tnode),POINTER :: trootS,trootT
+      TYPE(tnode),POINTER :: trootT
+
       INTEGER :: level
       INTEGER,DIMENSION(6) :: xyzind
 
@@ -1627,6 +1663,9 @@
       REAL(KIND=r8)      :: totaltime
 
 
+      CALL OMP_SET_DYNAMIC(.FALSE.)
+
+
 ! Call SETUP to allocate arrays for Taylor expansions
 ! and setup global variables. 
 
@@ -1634,7 +1673,7 @@
 
 ! nullify pointer to root of tree (TROOT) and create tree
 
-      NULLIFY(trootS,trootT)  
+      NULLIFY(trootT)  
 
       CALL DATE_AND_TIME(datec,timec,zonec,time1)
 
@@ -1647,6 +1686,7 @@
       !WRITE(6,*) 'Creating tree...'
 
       maxlevel=0
+
       CALL CREATE_TREE_N0(trootT,maxparnodeT,xyzminmax,xyzdim,xyzind,level)
 
       CALL DATE_AND_TIME(datec,timec,zonec,time2)
