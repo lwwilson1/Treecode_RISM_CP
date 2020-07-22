@@ -117,8 +117,6 @@
       END IF
 
 !$OMP PARALLEL
-      !PRINT *, "THREAD ", OMP_GET_THREAD_NUM(), " is allocating a, b."
-
       ALLOCATE(a(-2:torderlim, -2:torderlim, -2:torderlim), &
                b(-2:torderlim, -2:torderlim, -2:torderlim), STAT=err)
       IF (err .NE. 0) THEN
@@ -434,7 +432,6 @@
          tarpos(2)=yS(i)
          tarpos(3)=zS(i)
          tarposq=qS(i)
-         !PRINT *, "THREAD ", OMP_GET_THREAD_NUM(), " is handling source ", i, " with tarpos, tarposq ", tarpos(1), tarpos(2), tarpos(3), tarposq
 
          DO j=1,p%num_children
             CALL COMPUTE_CP1_TCF(p%child(j)%p_to_tnode,EnP, &
@@ -806,7 +803,7 @@
 
           yzhind=xyz_dimglob(2)*xyz_dimglob(3)
 
-          !!$OMP PARALLEL DO COLLAPSE(3) PRIVATE(i,j,k,nn,dx,dy,dz,kk,peng,k3,k2,k1,tx,ty)
+          !$OMP PARALLEL DO COLLAPSE(3) PRIVATE(i,j,k,nn,dx,dy,dz,kk,peng,k3,k2,k1,tx,ty)
           DO i=xlind,xhind
              DO j=ylind,yhind
                 DO k=zlind,zhind
@@ -839,13 +836,13 @@
                       peng = dz * peng + ty
                    END DO
 
-                   !!$OMP ATOMIC UPDATE
+                   !$OMP ATOMIC UPDATE
                    EnP(nn)=EnP(nn)+peng
 
                 END DO
              END DO
           END DO
-          !!$OMP END PARALLEL DO
+          !$OMP END PARALLEL DO
 
         END IF
 
